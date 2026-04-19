@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tom Certo · Admin</title>
+<style>
+  :root {
+    --bg: #0A0A0A;
+    --surface: #141414;
+    --surface-2: #1C1C1C;
+    --amber: #FFB020;
+    --amber-soft: #E6A010;
+    --amber-muted: rgba(255,176,32,0.10);
+    --amber-border: rgba(255,176,32,0.35);
+    --white: #fff;
+    --text2: #A1A1AA;
+    --text3: #52525B;
+    --border: #1F1F1F;
+    --red: #EF4444;
+    --red-muted: rgba(239,68,68,0.12);
+    --green: #22C55E;
+    --blue: #3B82F6;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;min-height:100vh}
+  button{cursor:pointer;font-family:inherit}
+  input,select,textarea{font-family:inherit}
+  a{color:var(--amber)}
+  .hidden{display:none !important}
+
+  /* ─── Login ─── */
+  .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .login-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:32px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,0.6)}
+  .brand{display:flex;flex-direction:column;align-items:center;gap:4px;margin-bottom:24px}
+  .brand-logo{width:56px;height:56px;display:flex;align-items:center;justify-content:center;background:var(--amber-muted);border:1.5px solid var(--amber-border);border-radius:14px;font-size:28px}
+  .brand-name{font-size:22px;font-weight:800;letter-spacing:-0.5px}
+  .brand-sub{font-size:11px;color:var(--text3);letter-spacing:2px;text-transform:uppercase}
+  label{display:block;font-size:12px;color:var(--text2);margin:14px 0 6px;letter-spacing:0.3px}
+  .input, input[type=text], input[type=password], input[type=number], textarea, select{
+    width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--white);
+    border-radius:10px;padding:12px 14px;font-size:14px;outline:none;transition:border-color 0.2s}
+  .input:focus, input:focus, textarea:focus, select:focus{border-color:var(--amber)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border-radius:99px;border:none;font-weight:700;font-size:14px;letter-spacing:0.3px;transition:transform 0.08s}
+  .btn:active{transform:scale(0.97)}
+  .btn-primary{background:var(--amber);color:var(--bg);width:100%;height:48px;margin-top:18px}
+  .btn-primary:hover{background:var(--amber-soft)}
+  .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text2)}
+  .btn-ghost:hover{border-color:var(--amber);color:var(--amber)}
+  .btn-danger{background:var(--red-muted);color:var(--red);border:1px solid var(--red)}
+  .btn-sm{padding:6px 12px;font-size:12px;height:32px}
+
+  .error{background:var(--red-muted);border:1px solid var(--red);color:var(--red);border-radius:10px;padding:10px 12px;font-size:13px;margin-top:12px}
+
+  /* ─── Dashboard ─── */
+  .shell{min-height:100vh;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--border);background:var(--surface)}
+  .topbar .brand{flex-direction:row;gap:10px;margin:0}
+  .topbar .brand-logo{width:36px;height:36px;font-size:18px;border-radius:10px}
+  .topbar .brand-name{font-size:17px}
+  .topbar .brand-sub{display:none}
+  .content{flex:1;padding:24px;max-width:1200px;width:100%;margin:0 auto}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:18px}
+  .card h2{font-size:16px;letter-spacing:-0.3px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .badge-amber{background:var(--amber-muted);color:var(--amber);border:1px solid var(--amber-border);border-radius:99px;padding:3px 10px;font-size:10px;letter-spacing:1.5px;text-transform:uppercase}
+
+  .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+  .form-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+  .form-row > *{flex:1}
+  .form-row .btn{flex:0 0 auto}
+
+  /* ─── Table ─── */
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .toolbar .input{flex:1;min-width:180px}
+  .toolbar select{max-width:160px}
+
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
+  th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+  th{color:var(--text3);font-weight:600;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;background:var(--surface-2)}
+  tr:hover td{background:rgba(255,255,255,0.015)}
+  td.token-code{font-family:'SF Mono','Monaco',monospace;color:var(--amber);letter-spacing:1.5px;font-size:14px}
+  .status-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:99px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+  .status-active{background:rgba(34,197,94,0.12);color:var(--green);border:1px solid var(--green)}
+  .status-expired{background:rgba(59,130,246,0.12);color:var(--blue);border:1px solid var(--blue)}
+  .status-revoked{background:var(--red-muted);color:var(--red);border:1px solid var(--red)}
+
+  .muted{color:var(--text3);font-size:12px}
+  .copy{cursor:pointer;margin-left:8px;opacity:0.5}
+  .copy:hover{opacity:1}
+
+  .empty{text-align:center;padding:40px;color:var(--text3);font-size:13px}
+
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--surface-2);border:1px solid var(--amber-border);color:var(--amber);padding:10px 18px;border-radius:99px;font-size:13px;font-weight:600;z-index:1000;animation:popin 0.3s}
+  @keyframes popin{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+
+  @media (max-width:640px){
+    .content{padding:14px}
+    .form-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+
+<!-- ─── LOGIN ─── -->
+<div id="login" class="login-wrap">
+  <div class="login-card">
+    <div class="brand">
+      <div class="brand-logo">🎵</div>
+      <div class="brand-name">Tom Certo</div>
+      <div class="brand-sub">Painel Admin</div>
+    </div>
+    <form id="login-form">
+      <label for="username">Usuário</label>
+      <input type="text" id="username" class="input" autocomplete="username" required>
+      <label for="password">Senha</label>
+      <input type="password" id="password" class="input" autocomplete="current-password" required>
+      <button type="submit" class="btn btn-primary">Entrar</button>
+      <div id="login-error" class="error hidden"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ─── DASHBOARD ─── -->
+<div id="dashboard" class="shell hidden">
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-logo">🎵</div>
+      <div class="brand-name">Tom Certo · Admin</div>
+    </div>
+    <button class="btn btn-ghost btn-sm" id="btn-logout">Sair</button>
+  </div>
+
+  <div class="content">
+    <!-- Create token -->
+    <div class="card">
+      <h2>Criar novo token <span class="badge-amber">Novo</span></h2>
+      <form id="create-form">
+        <div class="form-grid">
+          <div>
+            <label>Duração *</label>
+            <div style="display:flex;gap:8px">
+              <input type="number" id="c-duration" min="1" value="1" required style="flex:1">
+              <select id="c-unit" class="input" style="flex:0 0 130px">
+                <option value="minute">Minutos</option>
+                <option value="hour">Horas</option>
+                <option value="day" selected>Dias</option>
+                <option value="month">Meses</option>
+                <option value="year">Anos</option>
+              </select>
+            </div>
+            <div class="muted" id="c-preview" style="margin-top:4px">= 1440 minutos</div>
+          </div>
+          <div>
+            <label>Máx. dispositivos *</label>
+            <input type="number" id="c-max-devices" min="1" value="1" required>
+          </div>
+          <div>
+            <label>Nome do cliente</label>
+            <input type="text" id="c-customer" placeholder="Ex: Igreja São José">
+          </div>
+          <div>
+            <label>Observações</label>
+            <input type="text" id="c-notes" placeholder="Ex: Plano mensal">
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <button type="submit" class="btn btn-primary" style="width:auto;padding:12px 28px">Gerar token</button>
+        </div>
+        <div id="create-error" class="error hidden"></div>
+      </form>
+    </div>
+
+    <!-- Tokens list -->
+    <div class="card">
+      <h2>Tokens cadastrados</h2>
+      <div class="toolbar">
+        <input type="text" id="filter-q" class="input" placeholder="Buscar por token, cliente ou observação…">
+        <select id="filter-status" class="input">
+          <option value="">Todos</option>
+          <option value="active">Ativos</option>
+          <option value="expired">Expirados</option>
+          <option value="revoked">Revogados</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" id="btn-refresh">Atualizar</button>
+      </div>
+      <div class="table-wrap">
+        <table id="tokens-table">
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Status</th>
+              <th>Duração</th>
+              <th>Primeiro uso</th>
+              <th>Expira em</th>
+              <th>Último acesso</th>
+              <th>Cliente</th>
+              <th>Disp.</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tokens-body"></tbody>
+        </table>
+      </div>
+      <div id="tokens-empty" class="empty hidden">Nenhum token encontrado.</div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+const API_BASE = '/api';
+let ADMIN_TOKEN = localStorage.getItem('tomcerto_admin_token') || null;
+let ALL_TOKENS = [];
+
+const $ = (id) => document.getElementById(id);
+
+function show(el){ el.classList.remove('hidden'); }
+function hide(el){ el.classList.add('hidden'); }
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; show(t);
+  setTimeout(()=>hide(t), 2400);
+}
+function fmtDate(iso){
+  if (!iso) return '—';
+  try { const d = new Date(iso); return d.toLocaleString('pt-BR'); }
+  catch(e) { return iso; }
+}
+function fmtDur(mins){
+  mins = Number(mins || 0);
+  if (mins < 60) return mins === 1 ? '1 min' : `${mins} min`;
+  if (mins < 1440) {
+    const h = mins/60;
+    return `${h.toFixed(mins%60===0?0:1)}h`;
+  }
+  if (mins < 43200) {
+    const d = mins/1440;
+    const n = d.toFixed(mins%1440===0?0:1);
+    return (n === '1' || n === '1.0') ? '1 dia' : `${n} dias`;
+  }
+  if (mins < 525600) {
+    const m = mins/43200;
+    const n = m.toFixed(mins%43200===0?0:1);
+    return (n === '1' || n === '1.0') ? '1 mês' : `${n} meses`;
+  }
+  const y = mins/525600;
+  const n = y.toFixed(mins%525600===0?0:1);
+  return (n === '1' || n === '1.0') ? '1 ano' : `${n} anos`;
+}
+
+const UNIT_TO_MIN = { minute: 1, hour: 60, day: 1440, month: 43200, year: 525600 };
+
+function computeDurationMinutes(){
+  const v = parseFloat($('c-duration').value || '0');
+  const unit = $('c-unit').value;
+  return Math.max(1, Math.round(v * (UNIT_TO_MIN[unit] || 1)));
+}
+
+function updateDurationPreview(){
+  const mins = computeDurationMinutes();
+  const unit = $('c-unit').value;
+  const val = parseFloat($('c-duration').value || '0');
+  const label = ({minute:'minuto',hour:'hora',day:'dia',month:'mês',year:'ano'})[unit] || unit;
+  const plural = val > 1 ? (unit==='month'?'meses':label+'s') : label;
+  $('c-preview').textContent = `${val} ${plural} = ${mins.toLocaleString('pt-BR')} minutos`;
+}
+
+async function api(path, opts = {}){
+  opts.headers = Object.assign({'Content-Type':'application/json'}, opts.headers || {});
+  if (ADMIN_TOKEN) opts.headers.Authorization = `Bearer ${ADMIN_TOKEN}`;
+  const res = await fetch(API_BASE + path, opts);
+  if (res.status === 401 || res.status === 403){
+    localStorage.removeItem('tomcerto_admin_token');
+    ADMIN_TOKEN = null;
+    showLogin();
+    throw new Error('Sessão expirada. Faça login novamente.');
+  }
+  let body = null;
+  try { body = await res.json(); } catch(e){}
+  if (!res.ok) throw new Error((body && body.detail) || `HTTP ${res.status}`);
+  return body;
+}
+
+function showLogin(){ show($('login')); hide($('dashboard')); }
+function showDashboard(){ hide($('login')); show($('dashboard')); loadTokens(); }
+
+// ── LOGIN ─────────────────────────────────────────────────────
+$('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hide($('login-error'));
+  try{
+    const data = await api('/admin/login', {
+      method:'POST',
+      body: JSON.stringify({ username: $('username').value, password: $('password').value })
+    });
+    ADMIN_TOKEN = data.access_token;
+    localStorage.setItem('tomcerto_admin_token', ADMIN_TOKEN);
+    showDashboard();
+  }catch(err){
+    $('login-error').textContent = err.message || 'Erro ao entrar';
+    show($('login-error'));
+  }
+});
+
+$('btn-logout').addEventListener('click', () => {
+  localStorage.removeItem('tomcerto_admin_token');
+  ADMIN_TOKEN = null;
+  $('username').value = ''; $('password').value = '';
+  showLogin();
+});
+
+// ── CREATE TOKEN ──────────────────────────────────────────────
+$('create-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hide($('create-error'));
+  try{
+    const body = {
+      duration_minutes: computeDurationMinutes(),
+      max_devices: parseInt($('c-max-devices').value, 10),
+      customer_name: $('c-customer').value.trim(),
+      notes: $('c-notes').value.trim(),
+    };
+    const token = await api('/admin/tokens', {method:'POST', body: JSON.stringify(body)});
+    toast(`Token gerado: ${token.token}`);
+    try{ await navigator.clipboard.writeText(token.token); }catch(e){}
+    $('c-customer').value = ''; $('c-notes').value = '';
+    loadTokens();
+  }catch(err){
+    $('create-error').textContent = err.message || 'Erro ao criar token';
+    show($('create-error'));
+  }
+});
+
+// Update duration preview as user types
+['c-duration', 'c-unit'].forEach(id =>
+  $(id).addEventListener('input', updateDurationPreview)
+);
+$('c-unit').addEventListener('change', updateDurationPreview);
+updateDurationPreview();
+
+// ── LIST TOKENS ────────────────────────────────────────────────
+async function loadTokens(){
+  const q = $('filter-q').value.trim();
+  const st = $('filter-status').value;
+  const params = new URLSearchParams();
+  if (q) params.append('q', q);
+  if (st) params.append('status', st);
+  try{
+    ALL_TOKENS = await api('/admin/tokens' + (params.toString() ? '?' + params : ''));
+    renderTokens();
+  }catch(err){
+    toast(err.message || 'Erro ao carregar');
+  }
+}
+
+function renderTokens(){
+  const tbody = $('tokens-body');
+  tbody.innerHTML = '';
+  if (!ALL_TOKENS.length){ show($('tokens-empty')); return; }
+  hide($('tokens-empty'));
+  for (const t of ALL_TOKENS){
+    const tr = document.createElement('tr');
+    const eff = t.effective_status || t.status;
+    const statusCls = `status-${eff}`;
+    const statusLbl = eff === 'active' ? 'Ativo' : eff === 'expired' ? 'Expirado' : eff === 'revoked' ? 'Revogado' : eff;
+    tr.innerHTML = `
+      <td class="token-code">${t.token}<span class="copy" title="Copiar" data-copy="${t.token}">📋</span></td>
+      <td><span class="status-pill ${statusCls}">${statusLbl}</span></td>
+      <td>${fmtDur(t.duration_minutes)}</td>
+      <td>${fmtDate(t.first_used_at)}</td>
+      <td>${fmtDate(t.expires_at)}</td>
+      <td>${fmtDate(t.last_used_at)}</td>
+      <td>${t.customer_name || '—'}</td>
+      <td>${(t.linked_device_ids || []).length} / ${t.max_devices}</td>
+      <td>
+        ${eff === 'active' ? `<button class="btn btn-danger btn-sm" data-revoke="${t.id}">Revogar</button>` : ''}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+  // Bind actions
+  tbody.querySelectorAll('[data-copy]').forEach(el =>
+    el.addEventListener('click', async () => {
+      try{ await navigator.clipboard.writeText(el.dataset.copy); toast('Token copiado'); }catch(e){}
+    })
+  );
+  tbody.querySelectorAll('[data-revoke]').forEach(el =>
+    el.addEventListener('click', async () => {
+      if (!confirm('Revogar este token? Esta ação não pode ser desfeita.')) return;
+      try{
+        await api(`/admin/tokens/${el.dataset.revoke}/revoke`, {method:'POST'});
+        toast('Token revogado');
+        loadTokens();
+      }catch(err){ toast(err.message); }
+    })
+  );
+}
+
+let filterTimer = null;
+$('filter-q').addEventListener('input', () => {
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(loadTokens, 250);
+});
+$('filter-status').addEventListener('change', loadTokens);
+$('btn-refresh').addEventListener('click', loadTokens);
+
+// ── BOOT ──────────────────────────────────────────────────────
+if (ADMIN_TOKEN) showDashboard(); else showLogin();
+</script>
+
+</body>
+</html>
