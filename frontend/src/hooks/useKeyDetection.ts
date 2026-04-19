@@ -3,16 +3,20 @@ import { AppState, AppStateStatus } from 'react-native';
 import { detectKeyFromHistogram, KeyResult } from '../utils/keyDetector';
 import { createPitchEngine, PitchEngine, PitchEvent, PitchErrorReason } from '../audio/pitchEngine';
 
-const HISTORY_MS = 6000;
+// ─── Detection thresholds ─────────────────────────────────────────────────
+// Tuned for accuracy: it's better to take longer and be right
+// than to show a wrong key quickly.
+const HISTORY_MS = 12000;          // 12s sliding window for richer analysis
 const ANALYZE_INTERVAL_MS = 500;
-const WARMUP_MIN_MS = 3500;
-const WARMUP_MIN_UNIQUE = 4;
-const WARMUP_CONFIDENCE = 0.58;
-const INITIAL_CONFIRM_FRAMES = 3;
-const ONGOING_CONFIDENCE = 0.42;
-const HYSTERESIS_FRAMES = 7;
-const NOTE_DISPLAY_HOLD_MS = 220;
-const NOTE_DEDUPE_WINDOW_MS = 120;
+const MIN_SAMPLES_PHASE1 = 20;     // "Ouvindo..." until we have this many samples
+const WARMUP_MIN_MS = 5000;        // Minimum 5s before ANY key can be shown
+const WARMUP_MIN_UNIQUE = 5;       // Need at least 5 distinct pitch classes
+const WARMUP_CONFIDENCE = 0.76;    // High confidence bar for first key display
+const INITIAL_CONFIRM_FRAMES = 6;  // 6 frames (~3s) of consistent detection required
+const ONGOING_CONFIDENCE = 0.52;   // Lower bar to MAINTAIN a detected key
+const HYSTERESIS_FRAMES = 10;      // 10 frames (~5s) of new key before switching
+const NOTE_DISPLAY_HOLD_MS = 300;
+const NOTE_DEDUPE_WINDOW_MS = 150;
 
 interface NoteEvent {
   pitchClass: number;
@@ -127,11 +131,13 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     const hasKey = !!currentKeyRef.current;
 
     if (!hasKey) {
-      if (history.length < 3) {
+      // Phase 1: very few samples — just started listening
+      if (history.length < MIN_SAMPLES_PHASE1) {
         setDetectionState('listening');
         setStatusMessage('Ouvindo...');
         return;
       }
+      // Phase 2: need more elapsed time or more note variety
       if (elapsed < WARMUP_MIN_MS || uniqueNotes < WARMUP_MIN_UNIQUE) {
         setDetectionState('analyzing');
         setStatusMessage('Analisando tonalidade...');
@@ -139,11 +145,22 @@ export function useKeyDetection(): UseKeyDetectionReturn {
       }
     }
 
+    // Build histogram with consistency weighting.
+    // Notes that appear FREQUENTLY get extra weight — this suppresses
+    // passing tones and amplifies structural (scale) notes.
+    const rawCounts = new Array(12).fill(0);
     const histogram = new Array(12).fill(0);
     for (const note of history) {
       const age = (now - note.timestamp) / HISTORY_MS;
-      const decay = Math.exp(-2.5 * age);
+      const decay = Math.exp(-3.0 * age); // Stronger recency bias
       histogram[note.pitchClass] += note.rms * decay;
+      rawCounts[note.pitchClass]++;
+    }
+    const totalSamples = history.length || 1;
+    for (let i = 0; i < 12; i++) {
+      const freq = rawCounts[i] / totalSamples;
+      // Amplify notes that appear consistently — passing tones fade out
+      histogram[i] *= (1.0 + freq * 3.0);
     }
 
     const result = detectKeyFromHistogram(histogram);
@@ -151,8 +168,9 @@ export function useKeyDetection(): UseKeyDetectionReturn {
 
     if (result.confidence < minConf) {
       if (!hasKey) {
+        // We have data but not enough confidence yet — show "Refinando"
         setDetectionState('analyzing');
-        setStatusMessage('Analisando tonalidade...');
+        setStatusMessage('Refinando análise...');
       }
       return;
     }
@@ -169,13 +187,13 @@ export function useKeyDetection(): UseKeyDetectionReturn {
           count: 1,
         };
         setDetectionState('analyzing');
-        setStatusMessage('Analisando tonalidade...');
+        setStatusMessage('Refinando análise...');
         return;
       }
       ic.count++;
       if (ic.count < INITIAL_CONFIRM_FRAMES) {
         setDetectionState('analyzing');
-        setStatusMessage('Analisando tonalidade...');
+        setStatusMessage('Refinando análise...');
         return;
       }
       currentKeyRef.current = result;
