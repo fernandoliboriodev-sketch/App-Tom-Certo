@@ -391,8 +391,45 @@ async def admin_revoke_token(token_id: str, _=Depends(require_admin)):
     return item
 
 
-@api_router.delete("/admin/tokens/{token_id}")
-async def admin_delete_token(token_id: str, _=Depends(require_admin)):
+@api_router.delete("/admin/tokens/{token_id}/devices")
+async def admin_reset_devices(token_id: str, _=Depends(require_admin)):
+    """Remove todos os dispositivos vinculados ao token (permite re-uso em novos dispositivos)."""
+    doc = await tokens_col.find_one({"id": token_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Token não encontrado")
+    await tokens_col.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"linked_device_ids": [], "used_count": 0}},
+    )
+    return {"ok": True, "message": "Dispositivos removidos com sucesso"}
+
+
+@api_router.patch("/admin/tokens/{token_id}")
+async def admin_update_token(
+    token_id: str,
+    payload: dict,
+    _=Depends(require_admin),
+):
+    """Atualiza campos editáveis de um token (max_devices, customer_name, notes)."""
+    doc = await tokens_col.find_one({"id": token_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Token não encontrado")
+    allowed = {}
+    if "max_devices" in payload and isinstance(payload["max_devices"], int) and payload["max_devices"] >= 1:
+        allowed["max_devices"] = payload["max_devices"]
+    if "customer_name" in payload:
+        allowed["customer_name"] = str(payload["customer_name"])
+    if "notes" in payload:
+        allowed["notes"] = str(payload["notes"])
+    if allowed:
+        await tokens_col.update_one({"_id": doc["_id"]}, {"$set": allowed})
+    updated = await tokens_col.find_one({"id": token_id})
+    item = serialize_token(updated)
+    item["effective_status"] = compute_effective_status(updated)
+    return item
+
+
+
     res = await tokens_col.delete_one({"id": token_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Token não encontrado")

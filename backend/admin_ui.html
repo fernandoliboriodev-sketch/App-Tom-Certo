@@ -154,7 +154,7 @@
           </div>
           <div>
             <label>Máx. dispositivos *</label>
-            <input type="number" id="c-max-devices" min="1" value="1" required>
+            <input type="number" id="c-max-devices" min="1" value="5" required>
           </div>
           <div>
             <label>Nome do cliente</label>
@@ -376,6 +376,7 @@ function renderTokens(){
       <td>${(t.linked_device_ids || []).length} / ${t.max_devices}</td>
       <td>
         ${eff === 'active' ? `<button class="btn btn-danger btn-sm" data-revoke="${t.id}">Revogar</button>` : ''}
+        ${(t.linked_device_ids || []).length > 0 ? `<button class="btn btn-sm" data-reset-devices="${t.id}" style="background:var(--amber);color:#000;margin-left:4px" title="Remove dispositivos vinculados — permite que um novo dispositivo use este token">↺ Dispositivos</button>` : ''}
       </td>
     `;
     tbody.appendChild(tr);
@@ -392,6 +393,16 @@ function renderTokens(){
       try{
         await api(`/admin/tokens/${el.dataset.revoke}/revoke`, {method:'POST'});
         toast('Token revogado');
+        loadTokens();
+      }catch(err){ toast(err.message); }
+    })
+  );
+  tbody.querySelectorAll('[data-reset-devices]').forEach(el =>
+    el.addEventListener('click', async () => {
+      if (!confirm('Remover todos os dispositivos vinculados? O token poderá ser usado em novos dispositivos.')) return;
+      try{
+        await api(`/admin/tokens/${el.dataset.resetDevices}/devices`, {method:'DELETE'});
+        toast('Dispositivos removidos. O token pode ser usado novamente.');
         loadTokens();
       }catch(err){ toast(err.message); }
     })
