@@ -422,11 +422,13 @@ function ListeningScreen({
     <View style={styles.listeningContainer}>
       <View style={styles.listeningTop}>
         <Text style={styles.listeningLabel}>
-          {statusMessage.includes('Refinando')
+          {statusMessage.includes('Ouvindo')
+            ? 'OUVINDO'
+            : statusMessage.includes('Confirmando')
+            ? 'CONFIRMANDO'
+            : statusMessage.includes('Refinando')
             ? 'REFINANDO'
-            : statusMessage.includes('Analisando')
-            ? 'ANALISANDO'
-            : 'OUVINDO'}
+            : 'ANALISANDO'}
         </Text>
         <Text style={styles.listeningStatus}>{statusMessage}</Text>
       </View>
@@ -576,7 +578,7 @@ function DetectedScreen({
               },
             ]}
           />
-          <Text style={styles.detectedStatusTxt} numberOfLines={1}>
+          <Text style={styles.detectedStatusTxt} numberOfLines={2}>
             {statusMessage}
           </Text>
         </View>
