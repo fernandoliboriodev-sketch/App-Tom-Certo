@@ -1,0 +1,112 @@
+{
+  "theme": "dark",
+  "archetype": "5 (Jewel & Luxury)",
+  "design_philosophy": "Premium, OLED-optimized dark UI with cinematic golden accents. Inspired by Shazam and Spotify. Focus on absolute minimalism, centered alignments, and magical micro-interactions (pulsing mic).",
+  "colors": {
+    "background": "#000000",
+    "surface": "#141414",
+    "surfaceHighlight": "#1E1E1E",
+    "primary": "#FFB020",
+    "primaryGlow": "rgba(255, 176, 32, 0.4)",
+    "text": {
+      "main": "#FFFFFF",
+      "secondary": "#A0A0A0",
+      "tertiary": "#666666"
+    },
+    "borders": "#2A2A2A"
+  },
+  "typography": {
+    "title": {
+      "fontFamily": "Outfit_800ExtraBold",
+      "fontSize": 36,
+      "letterSpacing": -1,
+      "color": "#FFFFFF",
+      "textAlign": "center"
+    },
+    "heading": {
+      "fontFamily": "Outfit_700Bold",
+      "fontSize": 28,
+      "letterSpacing": -0.5,
+      "color": "#FFFFFF"
+    },
+    "body": {
+      "fontFamily": "Manrope_500Medium",
+      "fontSize": 16,
+      "color": "#A0A0A0"
+    },
+    "button": {
+      "fontFamily": "Manrope_600SemiBold",
+      "fontSize": 16,
+      "color": "#000000",
+      "textTransform": "uppercase",
+      "letterSpacing": 1
+    },
+    "note": {
+      "fontFamily": "Outfit_800ExtraBold",
+      "fontSize": 72,
+      "color": "#FFB020",
+      "textAlign": "center"
+    }
+  },
+  "spacing": {
+    "xs": 4,
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "xl": 32,
+    "xxl": 48,
+    "massive": 64
+  },
+  "animations": {
+    "pulse": {
+      "description": "Create 2-3 concentric circular Views behind the mic button. Use Animated.Value to scale from 1 to 2.5 while opacity goes from 0.5 to 0. Loop it using Animated.loop. Creates a radar/sonar emission effect indicating the app is listening."
+    },
+    "fade": {
+      "description": "Use standard LayoutAnimation or Animated.timing for screen transitions and appearing elements to feel smooth."
+    }
+  },
+  "screens": {
+    "InitialScreen": {
+      "layout": "Flex 1, justifyContent 'center', alignItems 'center', backgroundColor '#000000'",
+      "elements": [
+        "Top: Clean logo (logo-clean.png), resizeMode='contain', no background, width 80, height 80",
+        "Below Logo: Text 'Tom Certo' in Outfit_800ExtraBold, size 36, centered",
+        "Middle: Giant mic button (width 120, height 120, borderRadius 60, backgroundColor '#FFB020'). Wrapped in pulsing animated rings. Icon inside is a mic (e.g., from @expo/vector-icons), color #000.",
+        "Bottom: Button 'Iniciar Detecção'. Background solid #FFB020 with shadow glow (shadowColor: '#FFB020', shadowOpacity: 0.5, shadowRadius: 15, elevation: 10). Text color #000, Manrope_600SemiBold. Large padding (paddingVertical 16, paddingHorizontal 40), borderRadius 30, testID='start-detection-button'."
+      ]
+    },
+    "ActivationScreen": {
+      "layout": "Flex 1, padding 24, justifyContent 'center', backgroundColor '#000000'",
+      "elements": [
+        "Top: Clean logo + 'Tom Certo' (smaller than initial, e.g., size 28)",
+        "Middle: TextInput for Token. backgroundColor '#141414', borderRadius 12, padding 16, color '#FFF', borderColor '#2A2A2A', borderWidth 1, testID='activation-token-input'",
+        "Bottom: Activation CTA Button, solid #FFB020, testID='activation-submit-button'."
+      ]
+    },
+    "ListeningScreen": {
+      "layout": "Flex 1, justifyContent 'center', alignItems 'center', backgroundColor '#000000'",
+      "elements": [
+        "Center: Actively pulsing mic button (faster/intense pulse animation)",
+        "Above/Below: Live updating note (e.g. 'C', 'G#') in massive font (Outfit_800ExtraBold, size 72, color #FFFFFF)",
+        "Text: 'Ouvindo...' below the note, Manrope_400Regular, color #A0A0A0"
+      ]
+    },
+    "DetectedScreen": {
+      "layout": "Flex 1, padding 24, backgroundColor '#000000'",
+      "elements": [
+        "Top Area: 'Tom Detectado' label in Manrope_500Medium, color '#A0A0A0'",
+        "Hero: The actual Note/Key (e.g. 'D Maior') in Outfit_800ExtraBold, color '#FFB020', size 48",
+        "Middle: 'Campo Harmônico' section. Grid or list of chords. Rendered as sleek chips/cards in surface '#141414', borderRadius 12, border 1px solid '#2A2A2A'. Text inside Manrope_600SemiBold, color '#FFF'.",
+        "Bottom: 'Tentar Novamente' secondary button, borderColor '#FFB020', borderWidth 1, text color '#FFB020', testID='retry-button'."
+      ]
+    }
+  },
+  "instructions_to_main_agent": {
+    "critical_tech_stack": "React Native Expo app. DO NOT USE HTML, DIVS, CSS, className OR TAILWIND. Use native primitives: View, Text, TouchableOpacity, Image, TextInput. Style entirely with StyleSheet.create().",
+    "testing_attributes": "Add testID prop to all interactive and key informational elements. Do NOT use data-testid. Example: testID='start-detection-button'",
+    "assets_handling": "Use local assets as requested: require('./logo-clean.png') and require('./icon.png'). Remove any background squares/circles from the logo container. Keep resizeMode='contain' and style the image component to have no background.",
+    "glow_effects": "Since React Native lacks CSS drop-shadow, use the 'shadowColor', 'shadowOffset', 'shadowOpacity', 'shadowRadius', and 'elevation' properties in StyleSheet to create a golden halo around the primary button and mic. Example: shadowColor: '#FFB020', shadowOpacity: 0.4, shadowRadius: 10.",
+    "icons": "Use @expo/vector-icons (e.g., Ionicons or Feather) for the microphone icon. If not already installed, prompt the user or add it. Place it inside the Shazam-style circular button.",
+    "ui_cleanliness": "Eliminate amateur visuals. Apply generous padding, absolute center alignment for the Initial Screen, and rely heavily on negative space and high contrast between #000 background and #FFB020 accents."
+  }
+}
