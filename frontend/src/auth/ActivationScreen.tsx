@@ -11,12 +11,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Image,
   Keyboard,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   useFonts,
   Outfit_800ExtraBold,
@@ -31,19 +32,26 @@ import { useAuth } from './AuthContext';
 
 const { height: SH } = Dimensions.get('window');
 
-// ─── Design tokens (matching index.tsx) ─────────────────────────────────────
+// ─── Design tokens (OLED premium) ────────────────────────────────────────────
 const C = {
   bg:           '#000000',
-  surface:      '#0B0B0B',
   amber:        '#FFB020',
+  amberLight:   '#FFC543',   // destaque superior do gradiente
+  amberDeep:    '#E69A0F',   // sombra inferior do gradiente
+  amberSoft:    '#CFA14A',   // secundário (link WhatsApp)
+  amberSoftDim: 'rgba(207,161,74,0.5)',
   amberDim:     'rgba(255,176,32,0.35)',
-  amberFaint:   'rgba(255,176,32,0.15)',
+  amberGlow:    'rgba(255,176,32,0.55)',
   white:        '#FFFFFF',
   text2:        '#A0A0A0',
   text3:        '#555555',
+  text4:        '#3A3A3A',
   red:          '#EF4444',
-  redFaint:     'rgba(239,68,68,0.10)',
 };
+
+// ─── Link de solicitação de token ────────────────────────────────────────────
+const WHATSAPP_URL =
+  'https://wa.me/5563992029322?text=Ol%C3%A1%2C%20quero%20acesso%20ao%20token%20do%20app%20Tom%20Certo.';
 
 export default function ActivationScreen() {
   const [fontsLoaded] = useFonts({
@@ -59,19 +67,17 @@ export default function ActivationScreen() {
   const [busy, setBusy] = useState(false);
   const [focused, setFocused] = useState(false);
 
-  // Entrance anims
+  // ── Animações ────────────────────────────────────────────────────────────
   const fade = useRef(new Animated.Value(0)).current;
   const slide = useRef(new Animated.Value(24)).current;
-
-  // Logo subtle breath glow
-  const logoGlow = useRef(new Animated.Value(0.75)).current;
-
-  // Error shake
+  const logoScale = useRef(new Animated.Value(0.92)).current;
+  const logoGlow = useRef(new Animated.Value(0.78)).current;
   const errorShake = useRef(new Animated.Value(0)).current;
-
-  // Focus underline glow
   const underlineScale = useRef(new Animated.Value(0.6)).current;
+  const ctaScale = useRef(new Animated.Value(1)).current;
+  const waLinkScale = useRef(new Animated.Value(1)).current;
 
+  // ── Entrada ──────────────────────────────────────────────────────────────
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fade, { toValue: 1, duration: 650, useNativeDriver: true }),
@@ -81,19 +87,26 @@ export default function ActivationScreen() {
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
+      Animated.spring(logoScale, {
+        toValue: 1,
+        tension: 40,
+        friction: 8,
+        useNativeDriver: true,
+      }),
     ]).start();
 
+    // Logo breath glow loop
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(logoGlow, {
           toValue: 1,
-          duration: 2000,
+          duration: 2200,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
         Animated.timing(logoGlow, {
-          toValue: 0.75,
-          duration: 2000,
+          toValue: 0.78,
+          duration: 2200,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
@@ -103,6 +116,7 @@ export default function ActivationScreen() {
     return () => loop.stop();
   }, []);
 
+  // ── Underline animado ao focar ──────────────────────────────────────────
   useEffect(() => {
     Animated.timing(underlineScale, {
       toValue: focused || code.length > 0 ? 1 : 0.6,
@@ -112,6 +126,7 @@ export default function ActivationScreen() {
     }).start();
   }, [focused, code]);
 
+  // ── Shake no erro ───────────────────────────────────────────────────────
   useEffect(() => {
     if (errorMessage) {
       Animated.sequence([
@@ -135,6 +150,44 @@ export default function ActivationScreen() {
     setBusy(true);
     await activate(code);
     setBusy(false);
+  };
+
+  // ── Botão principal: press feedback ─────────────────────────────────────
+  const ctaPressIn = () => {
+    Animated.spring(ctaScale, { toValue: 0.96, useNativeDriver: true }).start();
+  };
+  const ctaPressOut = () => {
+    Animated.spring(ctaScale, {
+      toValue: 1,
+      friction: 4,
+      tension: 120,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  // ── WhatsApp link ───────────────────────────────────────────────────────
+  const waPressIn = () => {
+    Animated.spring(waLinkScale, { toValue: 0.97, useNativeDriver: true }).start();
+  };
+  const waPressOut = () => {
+    Animated.spring(waLinkScale, {
+      toValue: 1,
+      friction: 4,
+      useNativeDriver: true,
+    }).start();
+  };
+  const openWhatsApp = async () => {
+    try {
+      const supported = await Linking.canOpenURL(WHATSAPP_URL);
+      if (supported) {
+        await Linking.openURL(WHATSAPP_URL);
+      } else {
+        // fallback: tentar abrir mesmo assim
+        await Linking.openURL(WHATSAPP_URL);
+      }
+    } catch (e) {
+      console.warn('[Activation] Não foi possível abrir WhatsApp:', e);
+    }
   };
 
   if (!fontsLoaded) {
@@ -161,18 +214,24 @@ export default function ActivationScreen() {
           <Animated.View
             style={[ss.container, { opacity: fade, transform: [{ translateY: slide }] }]}
           >
-            {/* ── Brand block ── */}
+            {/* ── Brand block ──────────────────────────────────────────── */}
             <View style={ss.brandBlock}>
               <Animated.Image
                 source={require('../../assets/images/logo-icon.png')}
-                style={[ss.logo, { opacity: logoGlow }]}
+                style={[
+                  ss.logo,
+                  {
+                    opacity: logoGlow,
+                    transform: [{ scale: logoScale }],
+                  },
+                ]}
                 resizeMode="contain"
               />
               <Text style={ss.appName}>Tom Certo</Text>
               <Text style={ss.tagline}>Detector de tonalidade</Text>
             </View>
 
-            {/* ── Input: minimalist underline ── */}
+            {/* ── Input ────────────────────────────────────────────────── */}
             <Animated.View style={[ss.inputBlock, { transform: [{ translateX: errorShake }] }]}>
               <Text style={ss.inputLabel}>TOKEN DE ACESSO</Text>
               <TextInput
@@ -183,24 +242,24 @@ export default function ActivationScreen() {
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
                 onSubmitEditing={onSubmit}
-                placeholder="XXXX-XXXXXX"
+                placeholder="Digite seu token de acesso"
                 placeholderTextColor={C.text3}
                 autoCapitalize="characters"
                 autoCorrect={false}
-                maxLength={20}
+                maxLength={24}
                 returnKeyType="done"
                 selectionColor={C.amber}
                 underlineColorAndroid="transparent"
               />
               {/* Base underline */}
               <View style={ss.underlineBase} />
-              {/* Active underline grows from center */}
+              {/* Active underline com glow */}
               <Animated.View
                 style={[
                   ss.underlineActive,
                   {
                     transform: [{ scaleX: underlineScale }],
-                    opacity: focused || code.length > 0 ? 1 : 0.5,
+                    opacity: focused || code.length > 0 ? 1 : 0.45,
                   },
                 ]}
               />
@@ -213,26 +272,58 @@ export default function ActivationScreen() {
               ) : null}
             </Animated.View>
 
-            {/* ── Primary CTA ── */}
-            <TouchableOpacity
-              testID="activate-btn"
-              style={[ss.primaryBtn, !canSubmit && ss.primaryBtnDisabled]}
-              onPress={onSubmit}
-              disabled={!canSubmit}
-              activeOpacity={0.88}
-            >
-              {busy ? (
-                <ActivityIndicator color={C.bg} size="small" />
-              ) : (
-                <Text style={ss.primaryBtnTxt}>Ativar acesso</Text>
-              )}
-            </TouchableOpacity>
+            {/* ── Botão principal ─────────────────────────────────────── */}
+            <Animated.View style={{ width: '100%', transform: [{ scale: ctaScale }] }}>
+              <TouchableOpacity
+                testID="activate-btn"
+                activeOpacity={0.92}
+                onPress={onSubmit}
+                onPressIn={ctaPressIn}
+                onPressOut={ctaPressOut}
+                disabled={!canSubmit}
+                style={ss.primaryBtnWrap}
+              >
+                <LinearGradient
+                  colors={
+                    canSubmit
+                      ? [C.amberLight, C.amber, C.amberDeep]
+                      : ['rgba(255,176,32,0.35)', 'rgba(255,176,32,0.22)', 'rgba(255,176,32,0.15)']
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={[ss.primaryBtn, !canSubmit && ss.primaryBtnDisabled]}
+                >
+                  {busy ? (
+                    <ActivityIndicator color={C.bg} size="small" />
+                  ) : (
+                    <Text style={ss.primaryBtnTxt}>Ativar acesso</Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </Animated.View>
 
-            {/* ── Footer ── */}
-            <View style={ss.footer}>
-              <Ionicons name="lock-closed-outline" size={11} color={C.text3} />
-              <Text style={ss.footerTxt}>
-                Seu acesso fica salvo neste dispositivo
+            {/* ── Link WhatsApp ──────────────────────────────────────── */}
+            <Animated.View style={{ transform: [{ scale: waLinkScale }], marginTop: 22 }}>
+              <TouchableOpacity
+                testID="request-token-btn"
+                onPress={openWhatsApp}
+                onPressIn={waPressIn}
+                onPressOut={waPressOut}
+                activeOpacity={0.75}
+                style={ss.waLink}
+              >
+                <Text style={ss.waLinkTxt}>
+                  Não tem token de acesso?{'  '}
+                  <Text style={ss.waLinkTxtStrong}>Clique aqui para solicitar</Text>
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
+
+            {/* ── Mensagem de confiança ──────────────────────────────── */}
+            <View style={ss.trust}>
+              <Ionicons name="shield-checkmark-outline" size={12} color={C.text3} />
+              <Text style={ss.trustTxt}>
+                Seu acesso é seguro e validado instantaneamente
               </Text>
             </View>
           </Animated.View>
@@ -242,6 +333,7 @@ export default function ActivationScreen() {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
 const ss = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   splash: {
@@ -267,37 +359,37 @@ const ss = StyleSheet.create({
     alignItems: 'center',
   },
 
-  // Brand
+  // ── Brand ──────────────────────────────────────────────────────────────
   brandBlock: {
     alignItems: 'center',
-    marginBottom: SH * 0.08,
+    marginBottom: SH * 0.07,
   },
   logo: {
-    width: 110,
-    height: 110,
-    marginBottom: 18,
+    width: 118,
+    height: 118,
+    marginBottom: 20,
   },
   appName: {
     fontFamily: 'Outfit_800ExtraBold',
-    fontSize: 34,
+    fontSize: 36,
     color: C.white,
-    letterSpacing: -1,
+    letterSpacing: -1.2,
     textAlign: 'center',
   },
   tagline: {
     fontFamily: 'Manrope_500Medium',
     fontSize: 11,
     color: C.text3,
-    letterSpacing: 3,
+    letterSpacing: 3.2,
     textTransform: 'uppercase',
-    marginTop: 6,
+    marginTop: 8,
   },
 
-  // Input — minimalist underline (NO card)
+  // ── Input minimalista ────────────────────────────────────────────────
   inputBlock: {
     width: '100%',
     alignItems: 'center',
-    marginBottom: 36,
+    marginBottom: 32,
   },
   inputLabel: {
     fontFamily: 'Manrope_600SemiBold',
@@ -305,23 +397,23 @@ const ss = StyleSheet.create({
     color: C.amber,
     letterSpacing: 3,
     marginBottom: 14,
-    alignSelf: 'center',
   },
   input: {
     width: '100%',
     fontFamily: 'Outfit_700Bold',
-    fontSize: 22,
+    fontSize: 20,
     color: C.white,
-    letterSpacing: 4,
+    letterSpacing: 2.5,
     textAlign: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 8,
-    ...Platform.select({ web: { outlineWidth: 0 as any } as any, default: {} }),
+    // @ts-ignore – web-only, ignored on native
+    ...Platform.select({ web: { outlineWidth: 0 } as any, default: {} }),
   },
   underlineBase: {
     width: '100%',
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
   underlineActive: {
     position: 'absolute',
@@ -334,9 +426,10 @@ const ss = StyleSheet.create({
       ios: {
         shadowColor: C.amber,
         shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.7,
-        shadowRadius: 6,
+        shadowOpacity: 0.85,
+        shadowRadius: 8,
       },
+      android: { elevation: 3 },
       default: {},
     }),
   },
@@ -356,27 +449,30 @@ const ss = StyleSheet.create({
     lineHeight: 16,
   },
 
-  // Primary button
-  primaryBtn: {
+  // ── Botão principal com gradiente ────────────────────────────────────
+  primaryBtnWrap: {
     width: '100%',
-    height: 56,
     borderRadius: 99,
-    backgroundColor: C.amber,
-    alignItems: 'center',
-    justifyContent: 'center',
+    overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: C.amber,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.45,
-        shadowRadius: 20,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.5,
+        shadowRadius: 22,
       },
-      android: { elevation: 8 },
+      android: { elevation: 10 },
       default: {},
     }),
   },
+  primaryBtn: {
+    width: '100%',
+    height: 58,
+    borderRadius: 99,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   primaryBtnDisabled: {
-    backgroundColor: 'rgba(255,176,32,0.25)',
     ...Platform.select({
       ios: { shadowOpacity: 0 },
       android: { elevation: 0 },
@@ -385,20 +481,42 @@ const ss = StyleSheet.create({
   },
   primaryBtnTxt: {
     fontFamily: 'Outfit_700Bold',
-    fontSize: 16,
+    fontSize: 16.5,
     color: C.bg,
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
 
-  footer: {
+  // ── Link WhatsApp ───────────────────────────────────────────────────
+  waLink: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+  },
+  waLinkTxt: {
+    fontFamily: 'Manrope_400Regular',
+    fontSize: 13,
+    color: C.text2,
+    textAlign: 'center',
+    letterSpacing: 0.2,
+  },
+  waLinkTxtStrong: {
+    fontFamily: 'Manrope_600SemiBold',
+    color: C.amberSoft,
+    textDecorationLine: 'underline',
+    textDecorationColor: C.amberSoftDim,
+  },
+
+  // ── Mensagem de confiança ───────────────────────────────────────────
+  trust: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 24,
+    marginTop: 28,
+    paddingHorizontal: 8,
   },
-  footerTxt: {
+  trustTxt: {
     fontFamily: 'Manrope_500Medium',
-    fontSize: 11,
+    fontSize: 11.5,
     color: C.text3,
     letterSpacing: 0.3,
   },

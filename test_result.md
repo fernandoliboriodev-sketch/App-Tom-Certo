@@ -102,6 +102,46 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
+user_problem_statement: "Upgrade completo da tela de login com UX premium, estética Spotify/Apple Music, botão com gradiente dourado, link WhatsApp para solicitar token, mensagem de confiança, micro-interações."
+
+frontend:
+  - task: "Upgrade premium da tela de login (ActivationScreen v2)"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/auth/ActivationScreen.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: |
+            Upgrade completo com:
+            - Logo com entrance animation (fade + spring scale) e breath glow loop
+            - Tipografia premium (Outfit ExtraBold 36px + Manrope) com espaçamento refinado
+            - Tagline "DETECTOR DE TONALIDADE" dourada espaçada
+            - Input minimalista sem card: underline dourado animado (scaleX + shadow glow) ao focar
+            - Placeholder "Digite seu token de acesso"
+            - Botão principal com gradiente linear (expo-linear-gradient: #FFC543→#FFB020→#E69A0F)
+              com shadow/elevation dourada, press scale animation (0.96)
+            - NOVO: Link "Não tem token de acesso? Clique aqui para solicitar" em dourado suave
+              (#CFA14A) com underline, abre WhatsApp via Linking.openURL
+              (https://wa.me/5563992029322?text=...)
+            - NOVO: Mensagem de confiança "Seu acesso é seguro e validado instantaneamente"
+              com ícone shield-checkmark
+            - Error shake animation preservada
+            - testIDs: activation-code-input, activate-btn, request-token-btn
+
+            Ícone/favicon globais — já atualizados anteriormente para o logo oficial Tom Certo
+            (icon.png, adaptive-icon.png, splash-image.png, favicon.png todos regenerados).
+
+            Validado via screenshot em 390x844:
+            - Estado vazio (botão dimmed)
+            - Estado focado (underline dourado expandido)
+            - Estado preenchido (botão gradiente ativo)
+            - WhatsApp link captura URL correta ao clicar
+
+
 user_problem_statement: "Validar e corrigir detecção de áudio e tonalidade antes do APK. Requisitos: nunca chutar o tom, esperar confiança suficiente, ser robusto e confiável."
 
 frontend:
