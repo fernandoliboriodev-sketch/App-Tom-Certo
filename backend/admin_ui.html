@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tom Certo — Painel Admin</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0A0A0A;
+      --surface: #111111;
+      --surface2: #181818;
+      --border: #252525;
+      --amber: #FFB020;
+      --amber-muted: rgba(255,176,32,0.12);
+      --amber-border: rgba(255,176,32,0.30);
+      --white: #FFFFFF;
+      --text2: #A1A1AA;
+      --text3: #52525B;
+      --red: #EF4444;
+      --red-muted: rgba(239,68,68,0.12);
+      --green: #22C55E;
+      --green-muted: rgba(34,197,94,0.12);
+      --radius: 12px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--white);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Login Screen ── */
+    #login-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .login-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 40px 32px;
+      width: 100%;
+      max-width: 380px;
+    }
+    .brand { text-align: center; margin-bottom: 32px; }
+    .brand-name { font-size: 28px; font-weight: 800; color: var(--amber); letter-spacing: -0.5px; }
+    .brand-sub { font-size: 11px; color: var(--text3); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+
+    /* ── Admin Screen ── */
+    #admin-screen { display: none; }
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-brand { font-size: 16px; font-weight: 700; color: var(--amber); }
+    .header-right { display: flex; align-items: center; gap: 12px; }
+    .header-user { font-size: 12px; color: var(--text2); }
+
+    main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+
+    /* ── Stats bar ── */
+    .stats-bar { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 20px;
+      flex: 1;
+      min-width: 120px;
+    }
+    .stat-label { font-size: 10px; color: var(--text3); letter-spacing: 1.5px; text-transform: uppercase; }
+    .stat-value { font-size: 28px; font-weight: 700; color: var(--white); margin-top: 4px; }
+    .stat-value.amber { color: var(--amber); }
+    .stat-value.green { color: var(--green); }
+    .stat-value.red { color: var(--red); }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .search-input {
+      flex: 1;
+      min-width: 180px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--white);
+      padding: 9px 14px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .search-input:focus { border-color: var(--amber-border); }
+    .search-input::placeholder { color: var(--text3); }
+    .filter-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text2);
+      padding: 9px 14px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .filter-btn:hover, .filter-btn.active { border-color: var(--amber-border); color: var(--amber); background: var(--amber-muted); }
+
+    /* ── Table ── */
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th {
+      background: var(--surface2);
+      color: var(--text3);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    .token-code {
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--amber);
+      letter-spacing: 2px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid transparent;
+    }
+    .badge.active { background: var(--green-muted); color: var(--green); border-color: rgba(34,197,94,0.25); }
+    .badge.expired { background: rgba(161,161,170,0.10); color: var(--text2); border-color: rgba(161,161,170,0.2); }
+    .badge.revoked { background: var(--red-muted); color: var(--red); border-color: rgba(239,68,68,0.25); }
+    .devices-count { font-size: 13px; color: var(--text2); }
+    .devices-count.full { color: var(--amber); }
+    .customer { font-size: 12px; color: var(--text2); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .date { font-size: 11px; color: var(--text3); white-space: nowrap; }
+    .actions { display: flex; gap: 6px; align-items: center; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 7px 14px;
+      transition: all .15s;
+      text-decoration: none;
+    }
+    .btn-primary { background: var(--amber); color: #0A0A0A; }
+    .btn-primary:hover { background: #E6A010; }
+    .btn-danger { background: var(--red-muted); color: var(--red); border: 1px solid rgba(239,68,68,0.25); }
+    .btn-danger:hover { background: rgba(239,68,68,0.22); }
+    .btn-ghost { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+    .btn-ghost:hover { border-color: var(--amber-border); color: var(--amber); }
+    .btn-sm { padding: 5px 10px; font-size: 11px; border-radius: 6px; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* ── Forms ── */
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-size: 11px; font-weight: 600; color: var(--amber); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+    input, select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--white);
+      padding: 10px 14px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input:focus, select:focus { border-color: var(--amber-border); }
+    input::placeholder { color: var(--text3); }
+    select option { background: #1a1a1a; }
+    .form-hint { font-size: 11px; color: var(--text3); margin-top: 4px; }
+    .form-row { display: flex; gap: 12px; }
+    .form-row .form-group { flex: 1; }
+
+    /* ── Modal ── */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      width: 100%;
+      max-width: 440px;
+    }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .modal-title { font-size: 18px; font-weight: 700; }
+    .modal-close { background: none; border: none; color: var(--text3); font-size: 20px; cursor: pointer; padding: 4px; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; }
+
+    /* ── Token Result ── */
+    .token-result {
+      background: var(--amber-muted);
+      border: 1px solid var(--amber-border);
+      border-radius: var(--radius);
+      padding: 16px;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .token-result-label { font-size: 10px; color: var(--amber); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+    .token-result-code { font-family: 'Courier New', monospace; font-size: 28px; font-weight: 700; color: var(--amber); letter-spacing: 4px; }
+    .token-result-details { font-size: 12px; color: var(--text2); margin-top: 6px; }
+    .copy-btn { margin-top: 10px; }
+
+    /* ── Alerts ── */
+    .alert { padding: 12px 16px; border-radius: var(--radius); font-size: 13px; margin-bottom: 14px; border: 1px solid; }
+    .alert-error { background: var(--red-muted); border-color: rgba(239,68,68,0.3); color: var(--red); }
+    .alert-success { background: var(--green-muted); border-color: rgba(34,197,94,0.3); color: var(--green); }
+
+    /* ── Loading ── */
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,176,32,0.3); border-top-color: var(--amber); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Empty state ── */
+    .empty { text-align: center; padding: 48px 16px; color: var(--text3); }
+    .empty-icon { font-size: 40px; margin-bottom: 12px; }
+
+    /* ── Confirm ── */
+    .confirm-msg { color: var(--text2); font-size: 14px; line-height: 1.5; margin-bottom: 4px; }
+    .confirm-token { font-family: monospace; color: var(--amber); font-size: 16px; }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .stats-bar { flex-direction: column; }
+      .hide-mobile { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════ LOGIN SCREEN ═══════════════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="brand">
+      <div class="brand-name">Tom Certo</div>
+      <div class="brand-sub">Painel Administrativo</div>
+    </div>
+    <div id="login-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group">
+      <label>Usuário</label>
+      <input id="login-user" type="text" placeholder="admin" autocomplete="username" />
+    </div>
+    <div class="form-group">
+      <label>Senha</label>
+      <input id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password" />
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;height:44px;font-size:14px" id="login-btn" onclick="doLogin()">
+      Entrar
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════ ADMIN SCREEN ═══════════════ -->
+<div id="admin-screen">
+  <header>
+    <span class="header-brand">⬡ Tom Certo Admin</span>
+    <div class="header-right">
+      <span class="header-user" id="header-user">admin</span>
+      <button class="btn btn-ghost btn-sm" onclick="doLogout()">Sair</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Stats -->
+    <div class="stats-bar" id="stats-bar">
+      <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value" id="stat-total">—</div></div>
+      <div class="stat-card"><div class="stat-label">Ativos</div><div class="stat-value green" id="stat-active">—</div></div>
+      <div class="stat-card"><div class="stat-label">Expirados</div><div class="stat-value" id="stat-expired" style="color:var(--text2)">—</div></div>
+      <div class="stat-card"><div class="stat-label">Revogados</div><div class="stat-value red" id="stat-revoked">—</div></div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <input class="search-input" id="search-input" placeholder="Buscar por token ou cliente..." oninput="filterTable()" />
+      <button class="filter-btn active" id="filter-all" onclick="setFilter('all')">Todos</button>
+      <button class="filter-btn" id="filter-active" onclick="setFilter('active')">Ativos</button>
+      <button class="filter-btn" id="filter-expired" onclick="setFilter('expired')">Expirados</button>
+      <button class="filter-btn" id="filter-revoked" onclick="setFilter('revoked')">Revogados</button>
+      <button class="btn btn-primary" onclick="openCreateModal()">+ Novo Token</button>
+      <button class="btn btn-ghost btn-sm" onclick="loadTokens()" title="Atualizar">↻</button>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+      <table id="tokens-table">
+        <thead>
+          <tr>
+            <th>Token</th>
+            <th>Status</th>
+            <th>Cliente</th>
+            <th>Dispositivos</th>
+            <th class="hide-mobile">Duração</th>
+            <th class="hide-mobile">Expira em</th>
+            <th class="hide-mobile">Criado em</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="tokens-tbody">
+          <tr><td colspan="8" class="empty"><div class="spinner"></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<!-- ═══════════════ CREATE MODAL ═══════════════ -->
+<div class="modal-backdrop" id="create-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title">Criar Novo Token</span>
+      <button class="modal-close" onclick="closeModal('create-modal')">✕</button>
+    </div>
+    <div id="create-result" style="display:none">
+      <div class="token-result">
+        <div class="token-result-label">Token Gerado</div>
+        <div class="token-result-code" id="result-code">—</div>
+        <div class="token-result-details" id="result-details">—</div>
+      </div>
+      <button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="copyToken()">📋 Copiar Token</button>
+      <div class="modal-actions">
+        <button class="btn btn-primary" onclick="closeModal('create-modal');loadTokens()">Concluído</button>
+      </div>
+    </div>
+    <div id="create-form">
+      <div id="create-error" class="alert alert-error" style="display:none"></div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Duração</label>
+          <select id="dur-preset" onchange="applyDurPreset()">
+            <option value="60">1 hora</option>
+            <option value="1440">1 dia</option>
+            <option value="10080">1 semana</option>
+            <option value="43200" selected>1 mês</option>
+            <option value="129600">3 meses</option>
+            <option value="259200">6 meses</option>
+            <option value="525600">1 ano</option>
+            <option value="custom">Personalizado...</option>
+          </select>
+        </div>
+        <div class="form-group" id="dur-custom-group" style="display:none">
+          <label>Minutos</label>
+          <input id="dur-custom" type="number" min="1" placeholder="ex: 4320" value="43200"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Máx. dispositivos</label>
+          <input id="max-devices" type="number" min="1" max="20" value="1" />
+        </div>
+        <div class="form-group">
+          <label>Código (opcional)</label>
+          <input id="token-code" type="text" placeholder="Deixe vazio para gerar" maxlength="20" style="text-transform:uppercase"/>
+          <div class="form-hint">Deixe vazio para gerar automaticamente</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Nome do cliente</label>
+        <input id="customer-name" type="text" placeholder="Ex: João Silva — Ministério Ágape"/>
+      </div>
+      <div class="form-group">
+        <label>Observações</label>
+        <input id="notes" type="text" placeholder="Notas internas..."/>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal('create-modal')">Cancelar</button>
+        <button class="btn btn-primary" id="create-btn" onclick="doCreateToken()">Criar Token</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ REVOKE CONFIRM MODAL ═══════════════ -->
+<div class="modal-backdrop" id="revoke-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title">Revogar Token</span>
+      <button class="modal-close" onclick="closeModal('revoke-modal')">✕</button>
+    </div>
+    <p class="confirm-msg">Tem certeza que deseja revogar o token:</p>
+    <p class="confirm-token" id="revoke-token-display" style="margin:10px 0 4px">—</p>
+    <p class="confirm-msg" style="font-size:12px;color:var(--text3)">O acesso será bloqueado imediatamente em todos os dispositivos.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('revoke-modal')">Cancelar</button>
+      <button class="btn btn-danger" id="revoke-confirm-btn" onclick="confirmRevoke()">Revogar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ RESET DEVICES MODAL ═══════════════ -->
+<div class="modal-backdrop" id="reset-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title">Limpar Dispositivos</span>
+      <button class="modal-close" onclick="closeModal('reset-modal')">✕</button>
+    </div>
+    <p class="confirm-msg">Remover todos os dispositivos vinculados ao token:</p>
+    <p class="confirm-token" id="reset-token-display" style="margin:10px 0 4px">—</p>
+    <p class="confirm-msg" style="font-size:12px;color:var(--text3)">O próximo uso será tratado como primeiro acesso (novo dispositivo).</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('reset-modal')">Cancelar</button>
+      <button class="btn btn-danger" id="reset-confirm-btn" onclick="confirmResetDevices()">Limpar Dispositivos</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ DELETE CONFIRM MODAL ═══════════════ -->
+<div class="modal-backdrop" id="delete-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title">Excluir Token</span>
+      <button class="modal-close" onclick="closeModal('delete-modal')">✕</button>
+    </div>
+    <p class="confirm-msg">Excluir permanentemente o token:</p>
+    <p class="confirm-token" id="delete-token-display" style="margin:10px 0 4px">—</p>
+    <p class="confirm-msg" style="font-size:12px;color:var(--red)">⚠ Esta ação não pode ser desfeita.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('delete-modal')">Cancelar</button>
+      <button class="btn btn-danger" id="delete-confirm-btn" onclick="confirmDelete()">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ─── State ────────────────────────────────────────────────────────────────
+  let jwt = localStorage.getItem('tc_admin_jwt') || '';
+  let allTokens = [];
+  let currentFilter = 'all';
+  let pendingRevokeId = null;
+  let pendingResetId = null;
+  let pendingDeleteId = null;
+  let createdTokenCode = '';
+
+  const BASE = window.location.origin;
+
+  // ─── Boot ─────────────────────────────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
+    if (jwt) showAdmin();
+  });
+
+  // ─── Login ────────────────────────────────────────────────────────────────
+  async function doLogin() {
+    const user = document.getElementById('login-user').value.trim();
+    const pass = document.getElementById('login-pass').value;
+    const btn = document.getElementById('login-btn');
+    const errEl = document.getElementById('login-error');
+    errEl.style.display = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      const r = await fetch(`${BASE}/api/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'Credenciais inválidas');
+      jwt = d.access_token;
+      localStorage.setItem('tc_admin_jwt', jwt);
+      showAdmin();
+    } catch(e) {
+      errEl.textContent = e.message;
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Entrar';
+    }
+  }
+
+  function doLogout() {
+    jwt = '';
+    localStorage.removeItem('tc_admin_jwt');
+    document.getElementById('admin-screen').style.display = 'none';
+    document.getElementById('login-screen').style.display = 'flex';
+  }
+
+  function showAdmin() {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('admin-screen').style.display = 'block';
+    loadTokens();
+  }
+
+  // ─── Load tokens ──────────────────────────────────────────────────────────
+  async function loadTokens() {
+    try {
+      const r = await fetch(`${BASE}/api/admin/tokens`, {
+        headers: { 'Authorization': `Bearer ${jwt}` }
+      });
+      if (r.status === 401) { doLogout(); return; }
+      allTokens = await r.json();
+      updateStats();
+      renderTable();
+    } catch(e) {
+      console.error('loadTokens error', e);
+    }
+  }
+
+  function updateStats() {
+    const t = allTokens;
+    document.getElementById('stat-total').textContent = t.length;
+    document.getElementById('stat-active').textContent = t.filter(x => x.effective_status === 'active').length;
+    document.getElementById('stat-expired').textContent = t.filter(x => x.effective_status === 'expired').length;
+    document.getElementById('stat-revoked').textContent = t.filter(x => x.effective_status === 'revoked').length;
+  }
+
+  function setFilter(f) {
+    currentFilter = f;
+    ['all','active','expired','revoked'].forEach(id => {
+      document.getElementById('filter-'+id).classList.toggle('active', id === f);
+    });
+    renderTable();
+  }
+
+  function filterTable() { renderTable(); }
+
+  function renderTable() {
+    const q = (document.getElementById('search-input').value || '').toLowerCase();
+    let rows = allTokens.filter(t => {
+      const matchFilter = currentFilter === 'all' || t.effective_status === currentFilter;
+      const matchSearch = !q || t.token.toLowerCase().includes(q) || (t.customer_name||'').toLowerCase().includes(q) || (t.notes||'').toLowerCase().includes(q);
+      return matchFilter && matchSearch;
+    });
+
+    const tbody = document.getElementById('tokens-tbody');
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty"><div class="empty-icon">🔍</div><div>Nenhum token encontrado</div></td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = rows.map(t => {
+      const st = t.effective_status;
+      const badgeClass = st === 'active' ? 'active' : st === 'revoked' ? 'revoked' : 'expired';
+      const badgeLabel = st === 'active' ? '● Ativo' : st === 'revoked' ? '✕ Revogado' : '◌ Expirado';
+      const devCount = (t.linked_device_ids||[]).length;
+      const devFull = devCount >= t.max_devices;
+      const expDate = t.expires_at ? fmtDate(t.expires_at) : '∞';
+      const crDate = t.created_at ? fmtDate(t.created_at) : '—';
+      const dur = fmtDuration(t.duration_minutes);
+      const isActive = st === 'active';
+
+      return `<tr>
+        <td><span class="token-code">${t.token}</span></td>
+        <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+        <td><span class="customer" title="${t.customer_name||''}">${t.customer_name||'<span style="color:var(--text3)">—</span>'}</span></td>
+        <td><span class="devices-count ${devFull?'full':''}">${devCount} / ${t.max_devices}</span></td>
+        <td class="hide-mobile"><span class="date">${dur}</span></td>
+        <td class="hide-mobile"><span class="date">${expDate}</span></td>
+        <td class="hide-mobile"><span class="date">${crDate}</span></td>
+        <td>
+          <div class="actions">
+            ${devCount > 0 ? `<button class="btn btn-ghost btn-sm" onclick="openResetDevices('${t.id}','${t.token}')" title="Limpar dispositivos">📱</button>` : ''}
+            ${isActive ? `<button class="btn btn-danger btn-sm" onclick="openRevoke('${t.id}','${t.token}')">Revogar</button>` : ''}
+            <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="openDelete('${t.id}','${t.token}')" title="Excluir">🗑</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ─── Create token ─────────────────────────────────────────────────────────
+  function openCreateModal() {
+    document.getElementById('create-form').style.display = 'block';
+    document.getElementById('create-result').style.display = 'none';
+    document.getElementById('create-error').style.display = 'none';
+    document.getElementById('create-btn').disabled = false;
+    document.getElementById('customer-name').value = '';
+    document.getElementById('notes').value = '';
+    document.getElementById('token-code').value = '';
+    document.getElementById('max-devices').value = '1';
+    document.getElementById('dur-preset').value = '43200';
+    document.getElementById('dur-custom-group').style.display = 'none';
+    document.getElementById('create-modal').classList.add('open');
+  }
+
+  function applyDurPreset() {
+    const val = document.getElementById('dur-preset').value;
+    document.getElementById('dur-custom-group').style.display = val === 'custom' ? 'block' : 'none';
+  }
+
+  async function doCreateToken() {
+    const preset = document.getElementById('dur-preset').value;
+    const minutes = preset === 'custom' ? parseInt(document.getElementById('dur-custom').value) : parseInt(preset);
+    const maxDev = parseInt(document.getElementById('max-devices').value) || 1;
+    const customerName = document.getElementById('customer-name').value.trim();
+    const notes = document.getElementById('notes').value.trim();
+    const tokenCode = document.getElementById('token-code').value.trim().toUpperCase() || undefined;
+
+    const errEl = document.getElementById('create-error');
+    const btn = document.getElementById('create-btn');
+    errEl.style.display = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    try {
+      const body = { duration_minutes: minutes, max_devices: maxDev, customer_name: customerName, notes };
+      if (tokenCode) body.token_code = tokenCode;
+      const r = await fetch(`${BASE}/api/admin/tokens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+        body: JSON.stringify(body)
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'Erro ao criar token');
+      createdTokenCode = d.token;
+      document.getElementById('result-code').textContent = d.token;
+      document.getElementById('result-details').textContent = `Duração: ${fmtDuration(d.duration_minutes)} · Máx. ${d.max_devices} dispositivo(s)${d.customer_name ? ' · ' + d.customer_name : ''}`;
+      document.getElementById('create-form').style.display = 'none';
+      document.getElementById('create-result').style.display = 'block';
+    } catch(e) {
+      errEl.textContent = e.message;
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Criar Token';
+    }
+  }
+
+  function copyToken() {
+    if (navigator.clipboard && createdTokenCode) {
+      navigator.clipboard.writeText(createdTokenCode).then(() => alert('Token copiado: ' + createdTokenCode));
+    }
+  }
+
+  // ─── Revoke ───────────────────────────────────────────────────────────────
+  function openRevoke(id, code) {
+    pendingRevokeId = id;
+    document.getElementById('revoke-token-display').textContent = code;
+    document.getElementById('revoke-modal').classList.add('open');
+  }
+
+  async function confirmRevoke() {
+    const btn = document.getElementById('revoke-confirm-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      const r = await fetch(`${BASE}/api/admin/tokens/${pendingRevokeId}/revoke`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${jwt}` }
+      });
+      if (!r.ok) throw new Error('Erro ao revogar');
+      closeModal('revoke-modal');
+      loadTokens();
+    } catch(e) { alert(e.message); }
+    finally { btn.disabled = false; btn.textContent = 'Revogar'; }
+  }
+
+  // ─── Reset Devices ────────────────────────────────────────────────────────
+  function openResetDevices(id, code) {
+    pendingResetId = id;
+    document.getElementById('reset-token-display').textContent = code;
+    document.getElementById('reset-modal').classList.add('open');
+  }
+
+  async function confirmResetDevices() {
+    const btn = document.getElementById('reset-confirm-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      const r = await fetch(`${BASE}/api/admin/tokens/${pendingResetId}/devices`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${jwt}` }
+      });
+      if (!r.ok) throw new Error('Erro ao limpar dispositivos');
+      closeModal('reset-modal');
+      loadTokens();
+    } catch(e) { alert(e.message); }
+    finally { btn.disabled = false; btn.textContent = 'Limpar Dispositivos'; }
+  }
+
+  // ─── Delete ───────────────────────────────────────────────────────────────
+  function openDelete(id, code) {
+    pendingDeleteId = id;
+    document.getElementById('delete-token-display').textContent = code;
+    document.getElementById('delete-modal').classList.add('open');
+  }
+
+  async function confirmDelete() {
+    const btn = document.getElementById('delete-confirm-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      const r = await fetch(`${BASE}/api/admin/tokens/${pendingDeleteId}`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${jwt}` }
+      });
+      if (!r.ok) throw new Error('Erro ao excluir');
+      closeModal('delete-modal');
+      loadTokens();
+    } catch(e) { alert(e.message); }
+    finally { btn.disabled = false; btn.textContent = 'Excluir'; }
+  }
+
+  // ─── Modal helpers ────────────────────────────────────────────────────────
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+    pendingRevokeId = null;
+    pendingResetId = null;
+    pendingDeleteId = null;
+  }
+
+  document.addEventListener('click', e => {
+    if (e.target.classList.contains('modal-backdrop')) closeModal(e.target.id);
+  });
+
+  // ─── Format helpers ───────────────────────────────────────────────────────
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' }) + ' ' +
+             d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+    } catch { return iso; }
+  }
+
+  function fmtDuration(minutes) {
+    if (!minutes) return '—';
+    if (minutes >= 525600) return `${Math.round(minutes/525600)} ano(s)`;
+    if (minutes >= 43200) return `${Math.round(minutes/43200)} mês(es)`;
+    if (minutes >= 10080) return `${Math.round(minutes/10080)} sem.`;
+    if (minutes >= 1440) return `${Math.round(minutes/1440)} dia(s)`;
+    if (minutes >= 60) return `${Math.round(minutes/60)}h`;
+    return `${minutes}min`;
+  }
+</script>
+</body>
+</html>
