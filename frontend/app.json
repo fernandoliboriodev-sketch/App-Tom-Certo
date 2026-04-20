@@ -19,7 +19,7 @@
       "package": "com.tomcerto.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#0A0A0A"
+        "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
@@ -42,7 +42,7 @@
           "image": "./assets/images/splash-image.png",
           "imageWidth": 600,
           "resizeMode": "contain",
-          "backgroundColor": "#0A0A0A"
+          "backgroundColor": "#000000"
         }
       ]
     ],
