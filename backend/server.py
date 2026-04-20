@@ -462,6 +462,27 @@ async def on_startup():
     await tokens_col.create_index("status")
     logger.info("Tom Certo API ready. Admin user: %s", ADMIN_USERNAME)
 
+    # Seed test token for dev/preview environment (upsert: only creates if missing)
+    import uuid
+    existing = await tokens_col.find_one({"token": "TEST-DEV2026"})
+    if not existing:
+        await tokens_col.insert_one({
+            "id": str(uuid.uuid4()),
+            "token": "TEST-DEV2026",
+            "status": "active",
+            "created_at": now_utc(),
+            "first_used_at": None,
+            "expires_at": None,
+            "duration_minutes": 525600,
+            "max_devices": 10,
+            "used_count": 0,
+            "last_used_at": None,
+            "linked_device_ids": [],
+            "customer_name": "Dev Test",
+            "notes": "Token de teste para ambiente de desenvolvimento",
+        })
+        logger.info("Seed token TEST-DEV2026 criado.")
+
 
 @app.on_event("shutdown")
 async def on_shutdown():
