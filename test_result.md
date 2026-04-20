@@ -101,3 +101,123 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Tornar o app Tom Certo 100% nativo Android com captação real de microfone
+  (sem WebView/navegador), baixa latência, permissões corretas, e configurar
+  EAS Build para gerar APK instalável. Preparar para Play Store futuramente.
+
+frontend:
+  - task: "Captação de áudio nativa com @siteed/audio-studio (PCM Float32 streaming)"
+    implemented: true
+    working: "NA"
+    file: "src/audio/usePitchEngine.ts"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Instalado @siteed/audio-studio 3.0.3. Criado hook usePitchEngine que usa
+            useAudioRecorder com streamFormat:'float32', sampleRate 16000, janelas YIN
+            de 2048 samples com 50% overlap. Permissão via AudioStudioModule.
+            Web bundler ainda resolve .web.ts com fallback Web Audio API (Metro auto-resolve).
+            Requer validação em APK real - não testável no Expo Go ou web preview.
+
+  - task: "Permissões e configuração Android nativa"
+    implemented: true
+    working: "NA"
+    file: "app.json"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            app.json atualizado com plugin @siteed/audio-studio configurado
+            (enableBackgroundAudio:false, enableDeviceDetection:false para minimizar
+            permissões). Package com.tomcerto.app, versionCode 1, version 1.0.0.
+            Permissões RECORD_AUDIO e MODIFY_AUDIO_SETTINGS já presentes.
+
+  - task: "EAS Build configurado para APK"
+    implemented: true
+    working: "NA"
+    file: "eas.json"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Criado eas.json com 4 perfis: development (APK debug), preview (APK interno),
+            production (AAB Play Store), production-apk (APK para distribuição direta).
+            EXPO_PUBLIC_BACKEND_URL configurado em cada perfil. Aguarda build real pelo usuário.
+
+  - task: "Guia completo de build Android"
+    implemented: true
+    working: true
+    file: "BUILD_ANDROID.md"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: |
+            Criado BUILD_ANDROID.md com passo a passo completo:
+            eas login → eas init → eas build -p android --profile preview.
+            Inclui checklist Play Store, troubleshooting e atualização de versão.
+
+  - task: "Fallback web (Web Audio API) preservado"
+    implemented: true
+    working: true
+    file: "src/audio/usePitchEngine.web.ts"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: |
+            Hook usePitchEngine exportado também em arquivo .web.ts usando Web Audio API
+            + YIN. Metro bundler auto-resolve. Bundle web compila (884 modules).
+            Screenshot confirma que app carrega e tela principal aparece após login.
+
+metadata:
+  created_by: "main_agent"
+  version: "2.0"
+  test_sequence: 0
+  run_ui: false
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Migração para captação nativa completa. Mudanças principais:
+      
+      1) @siteed/audio-studio 3.0.3 instalado e configurado como plugin Expo
+      2) Refatoração: pitchEngine class-based → usePitchEngine hook-based
+      3) Files:
+         - src/audio/types.ts (novo - tipos compartilhados)
+         - src/audio/usePitchEngine.ts (novo - nativo)
+         - src/audio/usePitchEngine.web.ts (novo - fallback web)
+         - src/hooks/useKeyDetection.ts (refatorado para usar hook)
+         - app.json (plugin audio-studio + config)
+         - eas.json (novo - 4 perfis de build)
+         - BUILD_ANDROID.md (novo - guia do usuário)
+         - Removidos: src/audio/pitchEngine.ts e .web.ts
+      4) Native engine envia PCM Float32 em chunks 100ms → acumula em janelas 2048 samples
+         @ 16kHz → YIN → pitchClass. Overlap 50% para responsividade.
+      
+      Web preview funciona para teste de UI (screenshot confirmado).
+      Captação real requer APK construído via EAS. Usuário seguirá BUILD_ANDROID.md.
+      
+      Sem testes backend necessários - nenhuma mudança no backend.

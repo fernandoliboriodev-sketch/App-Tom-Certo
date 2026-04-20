@@ -1,7 +1,8 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { detectKeyFromHistogram, KeyResult } from '../utils/keyDetector';
-import { createPitchEngine, PitchEngine, PitchEvent, PitchErrorReason } from '../audio/pitchEngine';
+import { usePitchEngine } from '../audio/usePitchEngine';
+import type { PitchEvent, PitchErrorReason } from '../audio/types';
 import { frequencyToMidi, midiToPitchClass, formatKeyDisplay } from '../utils/noteUtils';
 
 // ─── Algorithm constants ──────────────────────────────────────────────────────
@@ -96,14 +97,18 @@ export function useKeyDetection(): UseKeyDetectionReturn {
   const isRunningRef = useRef(false);
   const lastPitchRef = useRef<{ pc: number; ts: number } | null>(null);
   const noteDisplayRef = useRef<{ pc: number; setAt: number } | null>(null);
-  const engineRef = useRef<PitchEngine | null>(null);
+  const engine = usePitchEngine();
+  const engineRef = useRef(engine);
+  engineRef.current = engine;
 
-  if (!engineRef.current) {
-    engineRef.current = createPitchEngine();
-    engineRef.current.onSoftInfo = (msg: string) => setSoftInfo(msg);
-  }
+  // Subscribe to soft-info messages (e.g. Expo Go limitations).
+  useEffect(() => {
+    if (engine.setSoftInfoHandler) {
+      engine.setSoftInfoHandler((msg: string) => setSoftInfo(msg));
+    }
+  }, [engine]);
 
-  const isSupported = engineRef.current.isSupported;
+  const isSupported = engine.isSupported;
 
   // ── onPitch: Layer 1+2 — quality gate + frequency smoothing ────────────────
   const onPitch = useCallback((e: PitchEvent) => {
@@ -343,8 +348,8 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     setIsStable(false);
     setStatusMessage('Ouvindo...');
 
-    const engine = engineRef.current!;
-    const ok = await engine.start(onPitch, onEngineError);
+    const eng = engineRef.current;
+    const ok = await eng.start(onPitch, onEngineError);
     if (!ok) {
       isRunningRef.current = false;
       setIsRunning(false);

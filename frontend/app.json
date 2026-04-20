@@ -11,8 +11,10 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.tomcerto.app",
+      "buildNumber": "1",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Detecta o tom da música em tempo real"
+        "NSMicrophoneUsageDescription": "Detecta o tom da música em tempo real",
+        "UIBackgroundModes": []
       }
     },
     "android": {
@@ -42,6 +44,18 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#0A0A0A"
+        }
+      ],
+      [
+        "@siteed/audio-studio",
+        {
+          "enablePhoneStateHandling": false,
+          "enableNotifications": false,
+          "enableBackgroundAudio": false,
+          "enableDeviceDetection": false,
+          "iosConfig": {
+            "microphoneUsageDescription": "Detecta o tom da música em tempo real"
+          }
         }
       ]
     ],

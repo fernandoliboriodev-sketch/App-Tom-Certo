@@ -30,16 +30,22 @@ Detecta a tonalidade (tom) de músicas cantadas ou tocadas via microfone.
 - **deviceId** (`src/auth/deviceId.ts`) — ID único do dispositivo
 - **storage** (`src/auth/storage.ts`) — SecureStore / localStorage
 - **YIN** (`src/audio/yin.ts`) — Algoritmo de detecção de pitch
-- **pitchEngine** (`src/audio/pitchEngine.ts`) — Engine nativa
-- **pitchEngine.web** (`src/audio/pitchEngine.web.ts`) — Engine web (Web Audio API)
+- **usePitchEngine** (`src/audio/usePitchEngine.ts`) — Hook nativo usando `@siteed/audio-studio` (PCM Float32 real-time)
+- **usePitchEngine.web** (`src/audio/usePitchEngine.web.ts`) — Fallback web (Web Audio API)
 - **keyDetector** (`src/utils/keyDetector.ts`) — Krumhansl-Schmuckler
 - **noteUtils** (`src/utils/noteUtils.ts`) — Notas BR/Internacional, campo harmônico
 - **useKeyDetection** (`src/hooks/useKeyDetection.ts`) — Hook principal de detecção
 
+### Build Android (APK)
+- **app.json** — `android.package=com.tomcerto.app`, `versionCode=1`, permissão `RECORD_AUDIO`, plugin `@siteed/audio-studio` configurado
+- **eas.json** — Perfis `development`, `preview` (APK), `production` (AAB), `production-apk` (APK)
+- Comando: `eas build -p android --profile preview` gera APK instalável
+- Ver `/app/frontend/BUILD_ANDROID.md` para passo a passo completo
+
 ## Credenciais
 - Admin: admin / tomcerto2025
 - Admin UI: /api/admin-ui
-- Token de teste: 2C5FRRR6V59C
+- Token de teste: 9ME76RH5ZAN5
 
 ## Backlog
 
@@ -47,7 +53,8 @@ Detecta a tonalidade (tom) de músicas cantadas ou tocadas via microfone.
 - Nenhum pendente
 
 ### P1 (Importante)
-- Detecção nativa de pitch no Expo Go (atualmente limitada pelo ambiente de sandbox)
+- Validar detecção nativa no APK (build em dispositivo real)
+- Teste de latência de pitch em ambiente live
 - Push notifications para expiração de token
 
 ### P2 (Melhoria)
