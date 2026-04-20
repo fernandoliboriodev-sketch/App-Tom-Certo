@@ -14,16 +14,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import {
-  useFonts,
-  Outfit_800ExtraBold,
-  Outfit_700Bold,
-} from '@expo-google-fonts/outfit';
-import {
-  Manrope_400Regular,
-  Manrope_500Medium,
-  Manrope_600SemiBold,
-} from '@expo-google-fonts/manrope';
 
 import { useKeyDetection } from '../src/hooks/useKeyDetection';
 import {
@@ -55,14 +45,6 @@ const C = {
 };
 
 export default function HomeScreen() {
-  const [fontsLoaded] = useFonts({
-    Outfit_800ExtraBold,
-    Outfit_700Bold,
-    Manrope_400Regular,
-    Manrope_500Medium,
-    Manrope_600SemiBold,
-  });
-
   const {
     currentKey,
     keyTier,
@@ -86,14 +68,6 @@ export default function HomeScreen() {
     : isRunning
     ? 'listening'
     : 'initial';
-
-  if (!fontsLoaded) {
-    return (
-      <View style={ss.splash}>
-        <Text style={ss.splashTxt}>Tom Certo</Text>
-      </View>
-    );
-  }
 
   return (
     <SafeAreaView style={ss.safe} edges={['top', 'bottom']}>

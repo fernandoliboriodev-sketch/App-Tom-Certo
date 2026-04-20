@@ -149,6 +149,10 @@ export function useKeyDetection(): UseKeyDetectionReturn {
   const isSupported = engine.isSupported;
 
   // ── onPitch: mediana + registro com run-length ─────────────────────────
+  // Refs para throttling — evita setState excessivo no hot path
+  const lastNoteUpdateRef = useRef<number>(0);
+  const lastRecentUpdateRef = useRef<number>(0);
+
   const onPitch = useCallback((e: PitchEvent) => {
     if (!isRunningRef.current) return;
     if (e.rms < MIN_RMS || e.clarity < MIN_CLARITY) return;
@@ -164,7 +168,7 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     const medianFreq = sortedFreqs[Math.floor(sortedFreqs.length / 2)];
     const pc = midiToPitchClass(frequencyToMidi(medianFreq));
 
-    // ── Run-length tracking: quantos frames consecutivos com o mesmo pc ──
+    // ── Run-length tracking ──
     let runLength = 1;
     if (lastPitchRef.current === pc) {
       const last = noteHistory.current[noteHistory.current.length - 1];
@@ -181,20 +185,23 @@ export function useKeyDetection(): UseKeyDetectionReturn {
       runLength,
     });
 
-    // Display (com hold para evitar flicker)
+    // ── THROTTLING: setCurrentNote só a cada NOTE_DISPLAY_HOLD_MS ──
     const disp = noteDisplayRef.current;
     if (!disp || now - disp.setAt >= NOTE_DISPLAY_HOLD_MS) {
       noteDisplayRef.current = { pc, setAt: now };
       setCurrentNote(pc);
     }
 
-    // recentNotes (últimas 6 distintas em ordem)
-    const all = noteHistory.current.slice(-60).map(n => n.pitchClass);
-    const dedup: number[] = [];
-    for (const p of all) {
-      if (dedup.length === 0 || dedup[dedup.length - 1] !== p) dedup.push(p);
+    // ── THROTTLING: setRecentNotes no máx 5Hz (200ms) ──
+    if (now - lastRecentUpdateRef.current >= 200) {
+      lastRecentUpdateRef.current = now;
+      const all = noteHistory.current.slice(-60).map(n => n.pitchClass);
+      const dedup: number[] = [];
+      for (const p of all) {
+        if (dedup.length === 0 || dedup[dedup.length - 1] !== p) dedup.push(p);
+      }
+      setRecentNotes(dedup.slice(-6));
     }
-    setRecentNotes(dedup.slice(-6));
   }, []);
 
   const onEngineError = useCallback((msg: string, reason?: PitchErrorReason) => {

@@ -18,16 +18,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import {
-  useFonts,
-  Outfit_800ExtraBold,
-  Outfit_700Bold,
-} from '@expo-google-fonts/outfit';
-import {
-  Manrope_400Regular,
-  Manrope_500Medium,
-  Manrope_600SemiBold,
-} from '@expo-google-fonts/manrope';
 import { useAuth } from './AuthContext';
 
 const { height: SH } = Dimensions.get('window');
@@ -51,17 +41,9 @@ const C = {
 
 // ─── Link de solicitação de token ────────────────────────────────────────────
 const WHATSAPP_URL =
-  'https://wa.me/5563992029322?text=Ol%C3%A1%2C%20quero%20acesso%20ao%20token%20do%20app%20Tom%20Certo.';
+  'https://wa.me/5563992029322?text=Ol%C3%A1.%20Quero%20Token%20de%20acesso%20do%20aplicativo';
 
 export default function ActivationScreen() {
-  const [fontsLoaded] = useFonts({
-    Outfit_800ExtraBold,
-    Outfit_700Bold,
-    Manrope_400Regular,
-    Manrope_500Medium,
-    Manrope_600SemiBold,
-  });
-
   const { activate, errorMessage, clearError } = useAuth();
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -178,25 +160,11 @@ export default function ActivationScreen() {
   };
   const openWhatsApp = async () => {
     try {
-      const supported = await Linking.canOpenURL(WHATSAPP_URL);
-      if (supported) {
-        await Linking.openURL(WHATSAPP_URL);
-      } else {
-        // fallback: tentar abrir mesmo assim
-        await Linking.openURL(WHATSAPP_URL);
-      }
+      await Linking.openURL(WHATSAPP_URL);
     } catch (e) {
       console.warn('[Activation] Não foi possível abrir WhatsApp:', e);
     }
   };
-
-  if (!fontsLoaded) {
-    return (
-      <View style={ss.splash}>
-        <Text style={ss.splashTxt}>Tom Certo</Text>
-      </View>
-    );
-  }
 
   const canSubmit = !busy && code.trim().length > 0;
 
@@ -312,8 +280,8 @@ export default function ActivationScreen() {
                 style={ss.waLink}
               >
                 <Text style={ss.waLinkTxt}>
-                  Não tem token de acesso?{'  '}
-                  <Text style={ss.waLinkTxtStrong}>Clique aqui para solicitar</Text>
+                  Não tem token de acesso?{'\n'}
+                  <Text style={ss.waLinkTxtStrong}>Solicitar token de acesso</Text>
                 </Text>
               </TouchableOpacity>
             </Animated.View>
