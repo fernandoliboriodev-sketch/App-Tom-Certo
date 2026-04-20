@@ -77,6 +77,7 @@ export function usePitchEngine(): PitchEngineHandle {
   const ringLenRef = useRef<number>(0); // quantas amostras válidas estão no buffer
 
   const runYinOnFrame = useCallback((frame: Float32Array, sampleRate: number) => {
+    if (!activeRef.current) return; // skip YIN se sessão parou (evita trabalho perdido)
     const result = yinPitch(frame, { sampleRate });
     if (result.frequency > 0 && onPitchRef.current) {
       const midi = frequencyToMidi(result.frequency);
@@ -118,13 +119,17 @@ export function usePitchEngine(): PitchEngineHandle {
         ring.set(data, len);
       }
 
-      // ── Processar frames YIN com overlap 50% ────────────────────────────
+      // ── Processar frames YIN SEM overlap (reduz 50% da CPU) ──────────────
+      // Antes: overlap 50% → 1 YIN a cada FRAME_SIZE/2 samples (64ms) = 15 Hz
+      // Agora: sem overlap → 1 YIN a cada FRAME_SIZE samples (128ms) = 7.8 Hz
+      // Pitch tracking funciona bem a 7.8 Hz — e libera a thread JS
+      // para eventos de toque (botões agora respondem instantaneamente).
       let offset = 0;
       while (newLen - offset >= FRAME_SIZE) {
         // subarray NÃO aloca — é só uma view do ring buffer
         const frame = ring.subarray(offset, offset + FRAME_SIZE);
         runYinOnFrame(frame, sr);
-        offset += FRAME_SIZE / 2; // 50% overlap
+        offset += FRAME_SIZE; // sem overlap
       }
 
       // ── Shift buffer para manter apenas amostras pendentes ──────────────

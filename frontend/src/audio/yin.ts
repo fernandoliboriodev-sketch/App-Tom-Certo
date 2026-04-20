@@ -39,9 +39,15 @@ export function yinPitch(buffer: Float32Array, opts: YinOptions): YinResult {
   rms = Math.sqrt(rms / bufSize);
   if (rms < 0.01) return { frequency: -1, probability: 0, rms };
 
-  // ── 2) Difference function ────────────────────────────────────────────────
-  const yin = new Float32Array(halfSize);
-  for (let t = 1; t < halfSize; t++) {
+  // ── 2) Determinar range de tau (só precisamos computar yin[t] em [1..tauMax]) ──
+  // Antes: iterava até halfSize (1024 valores) — 4x mais trabalho que o necessário
+  // Agora: tauMax é derivado de minFreq (65Hz @ 16kHz = 246) → economiza 75% da CPU
+  const tauMin = Math.max(2, Math.floor(sampleRate / maxFreq));
+  const tauMax = Math.min(halfSize - 1, Math.ceil(sampleRate / minFreq));
+
+  // ── 3) Difference function (só até tauMax) ────────────────────────────────
+  const yin = new Float32Array(tauMax + 2);
+  for (let t = 1; t <= tauMax; t++) {
     let sum = 0;
     for (let i = 0; i < halfSize; i++) {
       const d = buffer[i] - buffer[i + t];
@@ -50,18 +56,15 @@ export function yinPitch(buffer: Float32Array, opts: YinOptions): YinResult {
     yin[t] = sum;
   }
 
-  // ── 3) Cumulative mean normalized difference ──────────────────────────────
+  // ── 4) Cumulative mean normalized difference (só até tauMax) ─────────────
   yin[0] = 1;
   let running = 0;
-  for (let t = 1; t < halfSize; t++) {
+  for (let t = 1; t <= tauMax; t++) {
     running += yin[t];
     yin[t] = (yin[t] * t) / running;
   }
 
-  // ── 4) Absolute threshold — primeiro mínimo abaixo de threshold ───────────
-  const tauMin = Math.max(2, Math.floor(sampleRate / maxFreq));
-  const tauMax = Math.min(halfSize - 1, Math.ceil(sampleRate / minFreq));
-
+  // ── 5) Absolute threshold — primeiro mínimo abaixo de threshold ───────────
   let tau = -1;
   for (let t = tauMin; t <= tauMax; t++) {
     if (yin[t] < threshold) {
@@ -85,7 +88,7 @@ export function yinPitch(buffer: Float32Array, opts: YinOptions): YinResult {
     tau = minTau;
   }
 
-  // ── 5) Octave validation ──────────────────────────────────────────────────
+  // ── 6) Octave validation ──────────────────────────────────────────────────
   // YIN sofre de "octave-down error": detecta tau ~2x o valor correto.
   // Se existir um mínimo aceitável em tau/2 (clarity próxima), preferir a oitava acima.
   const halfTau = Math.floor(tau / 2);
@@ -107,10 +110,10 @@ export function yinPitch(buffer: Float32Array, opts: YinOptions): YinResult {
     }
   }
 
-  // ── 6) Parabolic interpolation para precisão sub-sample ──────────────────
+  // ── 7) Parabolic interpolation para precisão sub-sample ──────────────────
   const x0 = tau > 0 ? yin[tau - 1] : yin[tau];
   const x1 = yin[tau];
-  const x2 = tau + 1 < halfSize ? yin[tau + 1] : yin[tau];
+  const x2 = tau + 1 <= tauMax ? yin[tau + 1] : yin[tau];
   const a = (x0 + x2 - 2 * x1) / 2;
   const b = (x2 - x0) / 2;
   const betterTau = a !== 0 ? tau - b / (2 * a) : tau;
