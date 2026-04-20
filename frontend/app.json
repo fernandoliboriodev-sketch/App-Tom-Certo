@@ -24,8 +24,13 @@
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
-      ]
+      ],
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
     },
     "web": {
       "bundler": "metro",
@@ -55,6 +60,9 @@
         "projectId": "26ff52f7-2beb-4c73-b7bc-928c02f7d7dc"
       }
     },
-    "owner": "fernandosliborio"
+    "owner": "fernandosliborio",
+    "updates": {
+      "url": "https://u.expo.dev/26ff52f7-2beb-4c73-b7bc-928c02f7d7dc"
+    }
   }
 }
