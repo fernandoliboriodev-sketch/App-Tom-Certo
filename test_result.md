@@ -102,6 +102,93 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
+user_problem_statement: "Refatorar detecção tonal para ser rápida (primeiro resultado em ~2s), inteligente (refinamento contínuo com confiança % ao vivo), robusta (histerese para mudança de tom) e musicalmente correta (campo harmônico completo)."
+
+frontend:
+  - task: "Refactor detecção tonal v3 — sistema 2-tier + confiança ao vivo + campo harmônico completo"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/hooks/useKeyDetection.ts, /app/frontend/src/utils/noteUtils.ts, /app/frontend/app/index.tsx, /app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: |
+            ── ARQUITETURA NOVA: 2 CAMADAS ────────────────────────────────────
+            CAMADA 1 — PROVISIONAL (resposta rápida, ~1.8s):
+              • PROV_MIN_MS = 1800ms (antes: 6000ms)
+              • PROV_MIN_SAMPLES = 10
+              • PROV_MIN_UNIQUE = 3 (antes: 6)
+              • PROV_MIN_CONFIDENCE = 0.45
+              • Status: "Tom provável: X maior (62%)"
+              • Label UI: "TOM PROVÁVEL" em dourado
+
+            CAMADA 2 — CONFIRMED (robusto):
+              • CONF_MIN_MS = 5500ms
+              • CONF_MIN_UNIQUE = 5
+              • CONF_MIN_CONFIDENCE = 0.75
+              • CONF_CONFIRM_FRAMES = 5 (~1.5s)
+              • Status: "Estável no tom atual"
+              • Label UI: "TOM DETECTADO" em cinza
+
+            ── FEEDBACK AO VIVO ────────────────────────────────────────────────
+            • liveConfidence (0..1) atualizada a cada 300ms e exibida como %
+            • Barra de progresso dourada/verde (≥60% amber, ≥80% green)
+            • Status message dinâmico com % atual durante refinamento
+
+            ── HISTERESE DE MUDANÇA ───────────────────────────────────────────
+            • Provisional: troca fácil (3 frames consistentes + conf ≥0.45)
+            • Confirmed: mudança exige 10 frames consecutivos + conf ≥0.70
+            • Sugestão visível: "Possível mudança: X maior... (5/10)" em banner dourado
+            • Quando confirma: "Tom alterado para X maior" + re-estabiliza em 1.5s
+
+            ── PESOS DO HISTOGRAMA (mais assertivos) ──────────────────────────
+            • decay exponencial: 2.0 (notas recentes pesam mais)
+            • repetition boost: até +4.0x para pitch classes frequentes
+            • duration boost: log1p(runLength)*0.6 — notas sustentadas ganham peso
+            • max-run bonus: pitch classes com runs ≥3 ganham boost extra
+
+            ── CAMPO HARMÔNICO COMPLETO (7 acordes) ──────────────────────────
+            • MAIOR:  I · ii · iii · IV · V · vi · vii°  (antes: faltava vii°)
+            • MENOR:  i · ii° · III · iv · v · VI · VII  (antes: faltava VII)
+            • Validado: Dó maior → Dó·Rém·Mim·Fá·Sol·Lám·Si°
+            • Validado: Lá menor → Lám·Si°·Dó·Rém·Mim·Fá·Sol
+
+            ── FIX BACKEND ────────────────────────────────────────────────────
+            /api/admin/tokens: corrigido TypeError (offset-naive vs offset-aware
+            datetime comparison) na normalização de tzinfo antes de comparar.
+
+            ── TESTES AUTOMATIZADOS ───────────────────────────────────────────
+            8/8 testes passando (100%):
+              TESTE 1 ✓ Provisional em 1.84s: "Dó maior 85%" (critério: ≤2s)
+              TESTE 2 ✓ Confiança cresce: 68% → 92% ao longo de 4.1s
+              TESTE 3 ✓ Nota errada isolada NÃO troca tom (Sol maior mantido)
+              TESTE 4 ✓ Mudança real confirmada: Ré maior após 10s de cantada
+              TESTE 5 ✓ Campo harmônico completo (4/4 tonalidades corretas)
+
+            ── UI ADICIONADA ──────────────────────────────────────────────────
+            • Confidence hero: label "CONFIANÇA" + % grande colorida + barra
+            • Change banner: aparece quando changeSuggestion presente
+            • Label dinâmico TOM PROVÁVEL (dourado) vs TOM DETECTADO (cinza)
+
+metadata:
+  created_by: "main_agent"
+  version: "5.0"
+
+test_plan:
+  current_focus:
+    - "Teste real em APK Android — validar comportamento 2-tier em campo"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high"
+
+agent_communication:
+    - agent: "main"
+      message: "Detecção tonal completamente refatorada para 2-tier (provisional 1.8s + confirmed 5.5s). Confiança % ao vivo exibida com barra. Campo harmônico completo (7 acordes). Histerese forte contra mudanças falsas. 8/8 testes passando."
+
+
 user_problem_statement: "Upgrade completo da tela de login com UX premium, estética Spotify/Apple Music, botão com gradiente dourado, link WhatsApp para solicitar token, mensagem de confiança, micro-interações."
 
 frontend:

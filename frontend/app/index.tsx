@@ -65,6 +65,9 @@ export default function HomeScreen() {
 
   const {
     currentKey,
+    keyTier,
+    liveConfidence,
+    changeSuggestion,
     currentNote,
     recentNotes,
     isStable,
@@ -103,6 +106,9 @@ export default function HomeScreen() {
       {screen === 'detected' && (
         <DetectedScreen
           currentKey={currentKey!}
+          keyTier={keyTier}
+          liveConfidence={liveConfidence}
+          changeSuggestion={changeSuggestion}
           currentNote={currentNote}
           isStable={isStable}
           isRunning={isRunning}
@@ -363,6 +369,9 @@ function ListeningScreen({
 // ═════════════════════════════════════════════════════════════════════════════
 function DetectedScreen({
   currentKey,
+  keyTier,
+  liveConfidence,
+  changeSuggestion,
   currentNote,
   isStable,
   isRunning,
@@ -372,6 +381,9 @@ function DetectedScreen({
   onResume,
 }: {
   currentKey: NonNullable<ReturnType<typeof useKeyDetection>['currentKey']>;
+  keyTier: ReturnType<typeof useKeyDetection>['keyTier'];
+  liveConfidence: number;
+  changeSuggestion: ReturnType<typeof useKeyDetection>['changeSuggestion'];
   currentNote: number | null;
   isStable: boolean;
   isRunning: boolean;
@@ -385,6 +397,15 @@ function DetectedScreen({
     () => getHarmonicField(currentKey.root, currentKey.quality),
     [currentKey.root, currentKey.quality]
   );
+
+  const changeDisplay = useMemo(() => {
+    if (!changeSuggestion) return null;
+    return formatKeyDisplay(changeSuggestion.root, changeSuggestion.quality);
+  }, [changeSuggestion]);
+
+  const isProvisional = keyTier === 'provisional';
+  const confidencePct = Math.round(Math.max(0, liveConfidence) * 100);
+  const tierLabel = isProvisional ? 'TOM PROVÁVEL' : 'TOM DETECTADO';
 
   const keyOpacity = useRef(new Animated.Value(0)).current;
   const keyScale  = useRef(new Animated.Value(0.88)).current;
@@ -432,7 +453,7 @@ function DetectedScreen({
 
       {/* Key hero */}
       <Animated.View style={[ss.keyHero, { opacity: keyOpacity, transform: [{ scale: keyScale }] }]}>
-        <Text style={ss.keyHeroLabel}>TOM DETECTADO</Text>
+        <Text style={[ss.keyHeroLabel, isProvisional && { color: C.amber }]}>{tierLabel}</Text>
         <View style={ss.keyHeroRow}>
           <Text style={ss.keyHeroNote}>{keyDisplay.noteBr}</Text>
           <Text style={ss.keyHeroIntl}>({keyDisplay.noteIntl})</Text>
@@ -440,7 +461,51 @@ function DetectedScreen({
         <View style={ss.keyQualityPill}>
           <Text style={ss.keyQualityTxt}>{keyDisplay.qualityLabel.toUpperCase()}</Text>
         </View>
+
+        {/* Confiança ao vivo */}
+        <View style={ss.confWrap}>
+          <Text style={ss.confLabel}>CONFIANÇA</Text>
+          <Text
+            style={[
+              ss.confValue,
+              {
+                color:
+                  confidencePct >= 80 ? C.green :
+                  confidencePct >= 60 ? C.amber : C.text2,
+              },
+            ]}
+          >
+            {confidencePct}%
+          </Text>
+          {/* Barra de confiança */}
+          <View style={ss.confBarBg}>
+            <View
+              style={[
+                ss.confBarFill,
+                {
+                  width: `${Math.min(100, confidencePct)}%`,
+                  backgroundColor:
+                    confidencePct >= 80 ? C.green :
+                    confidencePct >= 60 ? C.amber : C.text3,
+                },
+              ]}
+            />
+          </View>
+        </View>
       </Animated.View>
+
+      {/* Banner de possível mudança de tom */}
+      {changeDisplay && (
+        <View style={ss.changeBanner}>
+          <Ionicons name="swap-horizontal" size={14} color={C.amber} />
+          <Text style={ss.changeBannerTxt}>
+            Possível mudança para{' '}
+            <Text style={ss.changeBannerStrong}>
+              {changeDisplay.noteBr} {changeDisplay.qualityLabel}
+            </Text>
+          </Text>
+        </View>
+      )}
 
       {/* Stability + current note inline */}
       <View style={ss.metaRow}>
@@ -990,5 +1055,63 @@ const ss = StyleSheet.create({
     fontFamily: 'Manrope_500Medium',
     fontSize: 13,
     color: C.text2,
+  },
+
+  // ── Confiança ao vivo ──────────────────────────────────────────────────
+  confWrap: {
+    marginTop: 18,
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 36,
+  },
+  confLabel: {
+    fontFamily: 'Manrope_600SemiBold',
+    fontSize: 9.5,
+    color: C.text3,
+    letterSpacing: 2.5,
+    marginBottom: 6,
+  },
+  confValue: {
+    fontFamily: 'Outfit_800ExtraBold',
+    fontSize: 22,
+    letterSpacing: -0.5,
+    marginBottom: 8,
+  },
+  confBarBg: {
+    width: '70%',
+    height: 4,
+    borderRadius: 99,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
+  },
+  confBarFill: {
+    height: '100%',
+    borderRadius: 99,
+  },
+
+  // ── Banner de mudança ──────────────────────────────────────────────────
+  changeBanner: {
+    marginHorizontal: 20,
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,176,32,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,176,32,0.28)',
+  },
+  changeBannerTxt: {
+    fontFamily: 'Manrope_500Medium',
+    fontSize: 12,
+    color: C.text2,
+    letterSpacing: 0.2,
+  },
+  changeBannerStrong: {
+    fontFamily: 'Outfit_700Bold',
+    color: C.amber,
   },
 });

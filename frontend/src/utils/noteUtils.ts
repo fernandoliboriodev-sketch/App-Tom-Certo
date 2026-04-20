@@ -28,10 +28,13 @@ export function formatKeyDisplay(root: number, quality: 'major' | 'minor') {
   };
 }
 
-const MAJOR_OFFSETS = [0, 2, 4, 5, 7, 9] as const;
-const MAJOR_QUAL = ['major', 'minor', 'minor', 'major', 'major', 'minor'] as const;
-const MINOR_OFFSETS = [0, 2, 3, 5, 7, 8] as const;
-const MINOR_QUAL = ['minor', 'dim', 'major', 'minor', 'minor', 'major'] as const;
+// Campo harmônico completo de 7 acordes
+// MAIOR:  I    ii   iii  IV   V    vi   vii°
+// MENOR:  i    ii°  III  iv   v    VI   VII  (menor natural — padrão em música popular)
+const MAJOR_OFFSETS = [0, 2, 4, 5, 7, 9, 11] as const;
+const MAJOR_QUAL    = ['major', 'minor', 'minor', 'major', 'major', 'minor', 'dim'] as const;
+const MINOR_OFFSETS = [0, 2, 3, 5, 7, 8, 10] as const;
+const MINOR_QUAL    = ['minor', 'dim', 'major', 'minor', 'minor', 'major', 'major'] as const;
 
 export interface HarmonicChord {
   root: number;

@@ -355,12 +355,18 @@ async def admin_list_tokens(
 
     # Batch-expire tokens whose expires_at has passed (single bulk update)
     now = now_utc()
-    expired_ids = [
-        d["_id"] for d in docs
-        if d.get("status") == "active"
-        and d.get("expires_at")
-        and d["expires_at"] <= now
-    ]
+    expired_ids = []
+    for d in docs:
+        if d.get("status") != "active":
+            continue
+        exp = d.get("expires_at")
+        if not exp:
+            continue
+        # Normalizar tzinfo: MongoDB pode retornar datetimes offset-naive
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp <= now:
+            expired_ids.append(d["_id"])
     if expired_ids:
         await tokens_col.update_many(
             {"_id": {"$in": expired_ids}},
