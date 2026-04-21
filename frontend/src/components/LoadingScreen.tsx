@@ -29,7 +29,13 @@ const C = {
   amberDim: 'rgba(255,176,32,0.18)',
 };
 
-export default function LoadingScreen({ fadingOut = false }: { fadingOut?: boolean }) {
+export default function LoadingScreen({
+  fadingOut = false,
+  hint = null,
+}: {
+  fadingOut?: boolean;
+  hint?: string | null;
+}) {
   // Fade-in geral da tela
   const fade = useRef(new Animated.Value(0)).current;
   // Pulse sutil da logo (opacidade + escala)
@@ -176,6 +182,15 @@ export default function LoadingScreen({ fadingOut = false }: { fadingOut?: boole
           />
         </Animated.View>
       </View>
+
+      {/* Hint discreto — só aparece se checagem de update estiver demorando */}
+      {hint ? (
+        <Animated.View style={[ss.hintBox, { opacity: logoOpacity }]}>
+          <Animated.Text style={[ss.hintTxt, { opacity: ringPulse }]}>
+            {hint}
+          </Animated.Text>
+        </Animated.View>
+      ) : null}
     </Animated.View>
   );
 }
@@ -212,5 +227,16 @@ const ss = StyleSheet.create({
       android: { elevation: 4 },
       default: {},
     }),
+  },
+  hintBox: {
+    position: 'absolute',
+    bottom: SH * 0.12,
+    alignItems: 'center',
+  },
+  hintTxt: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 12.5,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
 });
