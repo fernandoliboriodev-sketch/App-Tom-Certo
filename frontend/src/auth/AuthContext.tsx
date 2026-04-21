@@ -18,14 +18,17 @@ export interface AuthContextValue {
   status: AuthStatus;
   session: SessionInfo | null;
   errorMessage: string | null;
-  activate: (code: string) => Promise<{ ok: boolean; reason?: string }>;
+  hasSavedToken: boolean;
+  activate: (code?: string) => Promise<{ ok: boolean; reason?: string }>;
   logout: () => Promise<void>;
+  forgetDevice: () => Promise<void>;
   clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const SESSION_KEY = 'tc_session_v1';
+const TOKEN_KEY = 'tc_token_v1'; // armazena o código do token pra revalidação com 1 toque
 
 // URL de produção: fallback final caso env var não esteja disponível no APK
 const PROD_BACKEND_URL = 'https://tom-certo.preview.emergentagent.com';
@@ -64,15 +67,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('unauthenticated');
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [hasSavedToken, setHasSavedToken] = useState<boolean>(false);
   const boot = useRef(false);
 
   const loadAndRevalidate = async () => {
     try {
+      // Verifica se há token salvo (pra UI decidir se mostra input ou só botão)
+      const savedToken = await storage.getItem(TOKEN_KEY);
+      setHasSavedToken(!!savedToken);
+
       const raw = await storage.getItem(SESSION_KEY);
-      if (!raw) {
-        // Sem sessão salva → já está em 'unauthenticated', não precisa mudar
-        return;
-      }
+      if (!raw) return;
 
       // Tem sessão salva → revalida em background
       const parsed: SessionInfo = JSON.parse(raw);
@@ -117,17 +122,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadAndRevalidate();
   }, []);
 
-  const activate = async (code: string) => {
+  const activate = async (code?: string) => {
     setErrorMessage(null);
-    const clean = (code || '').trim().toUpperCase();
-    if (!clean) {
-      setErrorMessage('Digite o código do token');
-      return { ok: false, reason: 'empty' };
+
+    // Se não passou código, tenta usar o token salvo
+    let clean: string;
+    if (code === undefined || code === null || !code.trim()) {
+      const saved = await storage.getItem(TOKEN_KEY);
+      if (!saved) {
+        setErrorMessage('Digite o código do token');
+        return { ok: false, reason: 'empty' };
+      }
+      clean = saved;
+    } else {
+      clean = code.trim().toUpperCase();
     }
 
     const base = getBackendUrl();
-    // Com o fallback PROD_BACKEND_URL, essa checagem NUNCA vai falhar em produção.
-    // Mantida só por segurança extra.
     if (!base) {
       setErrorMessage('Não foi possível conectar ao servidor. Tente novamente.');
       return { ok: false, reason: 'no_backend' };
@@ -135,8 +146,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const deviceId = await getDeviceId();
-
-      // Timeout de 15s para evitar travamento em redes ruins
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
@@ -152,8 +161,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok || !data?.valid) {
         const msg = reasonToMessage(data?.reason);
         setErrorMessage(msg);
+        // Se o token salvo é inválido, apaga-o para forçar nova digitação
+        if (data?.reason === 'not_found' || data?.reason === 'revoked' || data?.reason === 'expired') {
+          await storage.removeItem(TOKEN_KEY);
+          setHasSavedToken(false);
+        }
         return { ok: false, reason: data?.reason };
       }
+
       const s: SessionInfo = {
         session: data.session,
         token_id: data.token_id,
@@ -162,11 +177,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         duration_minutes: data.duration_minutes,
       };
       await storage.setItem(SESSION_KEY, JSON.stringify(s));
+      // Salva o token para re-ativação fácil
+      await storage.setItem(TOKEN_KEY, clean);
+      setHasSavedToken(true);
       setSession(s);
       setStatus('authenticated');
       return { ok: true };
     } catch (err: any) {
-      // Diferenciar timeout/abort vs erro de rede genérico
       const isAbort = err?.name === 'AbortError';
       setErrorMessage(
         isAbort
@@ -177,9 +194,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // ── Logout: encerra sessão visual, MAS mantém token salvo ─────────────
+  // Usuário volta pra tela de ativação e pode entrar rapidamente
   const logout = async () => {
     await storage.removeItem(SESSION_KEY);
     setSession(null);
+    setErrorMessage(null);
+    setStatus('unauthenticated');
+    // NÃO apaga o token salvo — próxima ativação é rápida
+  };
+
+  // ── ForgetDevice: apaga TUDO (token + sessão) ─────────────────────────
+  // Exige nova digitação do token na próxima ativação
+  const forgetDevice = async () => {
+    await storage.removeItem(SESSION_KEY);
+    await storage.removeItem(TOKEN_KEY);
+    setSession(null);
+    setHasSavedToken(false);
     setErrorMessage(null);
     setStatus('unauthenticated');
   };
@@ -190,8 +221,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     status,
     session,
     errorMessage,
+    hasSavedToken,
     activate,
     logout,
+    forgetDevice,
     clearError,
   };
 
