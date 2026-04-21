@@ -145,34 +145,53 @@ function updateNoteDurHist(hist: number[], phrase: Phrase): number[] {
   return out;
 }
 
-// ── Determina qualidade (maj/min) a partir do histograma ────────────
-// Retorna { quality, margin }. Margem = razão do dominante sobre o outro.
+// ── Determina qualidade (maj/min) a partir das frases e histograma ────
+// CRITÉRIO MELHORADO: considera POSIÇÃO da 3ª (cadência/repouso pesa mais).
+//   - M3/m3 na cadência ou nota mais longa: peso 3×
+//   - M3/m3 com duração ≥ 250ms (nota de repouso): peso 2×
+//   - M3/m3 como nota de passagem curta: peso 1×
+// Também usa leading tone (7ª maior) como desempate secundário.
 function determineQuality(
+  phrases: Phrase[],
   noteDurHist: number[],
   tonicPc: number
 ): { quality: 'major' | 'minor'; margin: number } {
-  const M3 = noteDurHist[(tonicPc + 4) % 12];
-  const m3 = noteDurHist[(tonicPc + 3) % 12];
-  const leadingTone = noteDurHist[(tonicPc + 11) % 12];     // 7ª maior (maj/harm min)
-  const minorSeventh = noteDurHist[(tonicPc + 10) % 12];    // 7ª menor (minor natural)
+  const M3pc = (tonicPc + 4) % 12;
+  const m3pc = (tonicPc + 3) % 12;
 
-  // Se não há informação de 3ª, decide pela 7ª; se nenhuma, default MAJOR
-  const total3rd = M3 + m3;
-  if (total3rd < 50) {
-    // 3ª quase não cantada → usa 7ª
-    if (leadingTone > minorSeventh * 1.2) return { quality: 'major', margin: 1.5 };
-    if (minorSeventh > leadingTone * 1.2) return { quality: 'minor', margin: 1.5 };
-    return { quality: 'major', margin: 1.0 }; // default
+  let M3Weight = 0;
+  let m3Weight = 0;
+
+  for (const phrase of phrases) {
+    for (const note of phrase.notes) {
+      if (note.pitchClass !== M3pc && note.pitchClass !== m3pc) continue;
+      // Peso por posição musical
+      let weight = 1; // passagem curta
+      if (note.durMs >= 250) weight = 2; // repouso
+      if (note.pitchClass === phrase.lastSustainedPc) weight = Math.max(weight, 3); // cadência
+      if (note.pitchClass === phrase.longestPc) weight = Math.max(weight, 2.5); // nota mais longa
+
+      if (note.pitchClass === M3pc) M3Weight += weight;
+      else m3Weight += weight;
+    }
   }
 
-  // 3ª é decisivo
-  const majRatio = M3 / (m3 + 1e-6);
-  const minRatio = m3 / (M3 + 1e-6);
+  // Se não há dados de 3ª, usa leading tone como fallback
+  const total3rd = M3Weight + m3Weight;
+  if (total3rd < 1) {
+    const leadingTone = noteDurHist[(tonicPc + 11) % 12];
+    const minorSeventh = noteDurHist[(tonicPc + 10) % 12];
+    if (leadingTone > minorSeventh * 1.2) return { quality: 'major', margin: 1.5 };
+    if (minorSeventh > leadingTone * 1.2) return { quality: 'minor', margin: 1.5 };
+    return { quality: 'major', margin: 1.0 }; // prior pra maior
+  }
 
-  if (majRatio >= 1.15) return { quality: 'major', margin: majRatio };
-  if (minRatio >= 1.15) return { quality: 'minor', margin: minRatio };
+  const majRatio = M3Weight / (m3Weight + 0.1);
+  const minRatio = m3Weight / (M3Weight + 0.1);
 
-  // Ambíguo → prior pra major (música ocidental ~60% maior)
+  if (majRatio >= 1.25) return { quality: 'major', margin: majRatio };
+  if (minRatio >= 1.25) return { quality: 'minor', margin: minRatio };
+  // Ambíguo → prior suave pra major
   return { quality: 'major', margin: 1.0 };
 }
 
@@ -225,15 +244,30 @@ export function ingestPhrase(state: KeyDetectionState, phrase: Phrase): KeyDetec
   let topPc = 0;
   let topWeight = -Infinity;
   let secondWeight = 0;
-  let sumWeight = 0;
   for (let pc = 0; pc < 12; pc++) {
-    sumWeight += newTally[pc];
     if (newTally[pc] > topWeight) {
       secondWeight = topWeight > -Infinity ? topWeight : 0;
       topWeight = newTally[pc];
       topPc = pc;
     } else if (newTally[pc] > secondWeight) {
       secondWeight = newTally[pc];
+    }
+  }
+
+  // ── HISTERESE: se já tínhamos tônica confirmada/definitiva, não troca
+  //    a menos que nova candidata vença por MARGEM GRANDE (1.5×).
+  //    Isso evita que uma frase "errada" troque o tom brutalmente.
+  if (
+    state.currentTonicPc !== null &&
+    (state.stage === 'confirmed' || state.stage === 'definitive') &&
+    topPc !== state.currentTonicPc
+  ) {
+    const prevWeight = newTally[state.currentTonicPc];
+    if (topWeight < prevWeight * 1.5) {
+      // Mantém tônica anterior; segundo colocado é a "nova candidata"
+      secondWeight = topWeight;
+      topWeight = prevWeight;
+      topPc = state.currentTonicPc;
     }
   }
 
@@ -248,11 +282,11 @@ export function ingestPhrase(state: KeyDetectionState, phrase: Phrase): KeyDetec
   const phraseBonus = Math.min(1, (state.phrases.length + 1) / 3); // 1 frase → 0.33, 3+ → 1.0
   const rawConf = 0.45 * marginRatio + 0.55 * phraseBonus * Math.min(1, topWeight / 12);
 
-  // 6) Qualidade (só faz sentido calcular se já há tônica candidata)
-  const qr = determineQuality(newDurHist, topPc);
-
   // 7) Frases pra avaliar stage
   const newPhrases = [...state.phrases, phrase];
+
+  // 6) Qualidade — agora usando análise posicional das frases
+  const qr = determineQuality(newPhrases, newDurHist, topPc);
 
   // Últimas 2 frases concordam? (top-vote pc de cada frase é igual ao topPc atual?)
   const lastPhrasesAgree = (() => {

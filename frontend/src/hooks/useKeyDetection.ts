@@ -92,6 +92,7 @@ export function useKeyDetection(): UseKeyDetectionReturn {
   // ── Refs de processamento ────────────────────────────────
   const startTimeRef = useRef<number>(0);
   const medianBufRef = useRef<number[]>([]);
+  const lastStableMidiRef = useRef<number | null>(null); // ← para correção de oitava
   const curPcRef = useRef<number | null>(null);
   const curStartRef = useRef<number>(0);
   const curFramesRef = useRef<number>(0);
@@ -184,10 +185,25 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     lastVoicedTimeRef.current = now;
 
     // Pitch class do frame
-    const midi = frequencyToMidi(ev.frequency);
+    let midi = frequencyToMidi(ev.frequency);
+
+    // ── CORREÇÃO DE OITAVA (YIN frequentemente reporta ±12 em erro) ──
+    // Se o novo MIDI diferir +12 ou -12 do último estável, assume erro de oitava
+    // e usa a oitava estável (mantém pitch class, corrige posicionamento).
+    if (lastStableMidiRef.current !== null) {
+      const diff = midi - lastStableMidiRef.current;
+      if (diff >= 10 && diff <= 14) {
+        // Subiu ~1 oitava: provavelmente erro, volta uma oitava
+        midi -= 12;
+      } else if (diff <= -10 && diff >= -14) {
+        // Desceu ~1 oitava: provavelmente erro, sobe uma oitava
+        midi += 12;
+      }
+    }
+
     const rawPc = midiToPitchClass(midi);
 
-    // Mediana (3 frames)
+    // ── Filtro mediana (3 frames) ──
     medianBufRef.current.push(rawPc);
     if (medianBufRef.current.length > MEDIAN_WINDOW) medianBufRef.current.shift();
     const counts = new Array(12).fill(0);
@@ -195,6 +211,11 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     let pc: number = rawPc;
     let top = 0;
     for (let i = 0; i < 12; i++) if (counts[i] > top) { top = counts[i]; pc = i; }
+
+    // Atualiza MIDI "estável" após pitch class estabilizar (usado pra oitava)
+    if (counts[pc] >= MEDIAN_WINDOW) {
+      lastStableMidiRef.current = midi;
+    }
 
     setCurrentNote(pc);
 
@@ -257,6 +278,7 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     setKeyState(createInitialState());
     startTimeRef.current = Date.now();
     medianBufRef.current = [];
+    lastStableMidiRef.current = null;
     curPcRef.current = null;
     curFramesRef.current = 0;
     curCommittedRef.current = false;
