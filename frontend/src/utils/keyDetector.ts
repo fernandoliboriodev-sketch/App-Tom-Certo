@@ -1,23 +1,41 @@
 // ═════════════════════════════════════════════════════════════════════════
-// Tom Certo — Tonal Inference Engine v3
+// Tom Certo — Tonal Inference Engine v4
 // ═════════════════════════════════════════════════════════════════════════
-// Abandona a abordagem monolítica de Krumhansl puro e usa um scoring
-// multi-critério especificamente desenhado para voz cantada.
+// OBJETIVO desta revisão: ELIMINAR a confusão maior vs. relativo menor.
 //
-// Pesos:  35% Krumhansl-Schmuckler (base estatística)
-//         25% Signature fit (peso dentro/fora da escala)
-//         20% Third-degree balance (M3 vs m3) — diferencia maj/min
-//         10% Tonic evidence (peso da raiz relativo ao máximo)
-//         10% Leading tone evidence (7ª sensível em tons maiores/harm. menores)
+// Relativo maior/menor (ex: Ré Maior / Fá# menor) compartilham EXATAMENTE
+// as mesmas 7 notas diatônicas. Portanto, NENHUM algoritmo baseado só em
+// distribuição de notas consegue diferenciá-los — apenas o CENTRO TONAL
+// diferencia.
+//
+// Sinais de centro tonal (em ordem de importância):
+//   1. Nota sobre a qual a melodia "descansa" (última nota sustentada)
+//   2. Primeira nota estável de uma frase
+//   3. Tônica candidata ter a 5ª dominante também forte (V-I)
+//   4. 3ª maior vs 3ª menor — já separa maj/min quando a 3ª é cantada
+//   5. Nota mais sustentada
+//   6. Frequência relativa
+//
+// Pesos finais:
+//   0.15 Pearson (Krumhansl-Schmuckler)
+//   0.10 Signature fit (notas dentro da escala)
+//   0.18 3rd-balance (M3 >> m3 para maior; m3 >> M3 para menor)
+//   0.22 Tonic centrality (tônica + dominante juntas)
+//   0.09 Cadência (última nota sustentada = tônica)
+//   0.08 First-note bias (primeira nota estável = tônica)
+//   0.05 Longest-sustained (nota mais sustentada = tônica)
+//   0.05 Subdominant support (4ª também presente)
+//   0.05 Leading tone (7ª maior em maj/harm. menor)
+//   0.03 Relative-major prior (literatura ocidental é ~60% maior)
 // ═════════════════════════════════════════════════════════════════════════
 
 // Perfis de Krumhansl-Schmuckler (1990)
 const KK_MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
 const KK_MINOR = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
 
-// Escalas: maior diatônica + menor (natural ∪ harmônica ∪ melódica asc.)
+// Escalas diatônicas (EXATAS — 7 notas cada — pra comparação justa)
 const MAJOR_SCALE = [0, 2, 4, 5, 7, 9, 11];
-const MINOR_SCALE = [0, 2, 3, 5, 7, 8, 9, 10, 11];
+const MINOR_SCALE_NATURAL = [0, 2, 3, 5, 7, 8, 10];
 
 function pearson(x: number[], y: number[]): number {
   const n = x.length;
@@ -37,7 +55,7 @@ function rotate(arr: number[], shift: number): number[] {
 }
 
 function signatureFit(hist: number[], root: number, quality: 'major' | 'minor'): number {
-  const iv = quality === 'major' ? MAJOR_SCALE : MINOR_SCALE;
+  const iv = quality === 'major' ? MAJOR_SCALE : MINOR_SCALE_NATURAL;
   const scale = new Set(iv.map(i => (root + i) % 12));
   let inS = 0, outS = 0;
   for (let pc = 0; pc < 12; pc++) {
@@ -50,49 +68,60 @@ function signatureFit(hist: number[], root: number, quality: 'major' | 'minor'):
 
 /**
  * Terceira maior (root+4) vs terceira menor (root+3).
- * Retorna valor em [-1 .. +1]: positivo = perfil maior, negativo = perfil menor.
+ * Retorna -1..+1: positivo = perfil maior, negativo = perfil menor.
  */
 function thirdBalance(hist: number[], root: number): number {
   const M3 = hist[(root + 4) % 12];
   const m3 = hist[(root + 3) % 12];
   const sum = M3 + m3;
   if (sum < 1e-6) return 0;
-  return (M3 - m3) / sum; // -1..+1
+  return (M3 - m3) / sum;
 }
 
 /**
- * Evidência de tônica: quanto a pitch class candidate "domina" o histograma.
- * Retorna 0..1.
+ * Centro tonal: quanto `root` domina como tônica + quanto sua 5ª justa é forte.
+ * Peso: 60% tônica + 40% dominante.
+ *
+ * RAZÃO: em Ré Maior, A (5ª) é muito mais cantada que C# (5ª de F#m).
+ * Isso desempata Ré Maior vs Fá# menor mesmo com notas iguais.
  */
-function tonicEvidence(hist: number[], root: number): number {
-  const maxVal = Math.max(...hist);
-  if (maxVal <= 0) return 0;
-  return hist[root] / maxVal;
+function tonicCentrality(hist: number[], root: number): number {
+  const maxH = Math.max(...hist, 1e-9);
+  const tonic = hist[root] / maxH;            // 0..1
+  const fifth = hist[(root + 7) % 12] / maxH; // 0..1
+  return Math.min(1, 0.60 * tonic + 0.40 * fifth);
 }
 
-/**
- * Presença da sensível (7ª maior, root+11 em major; root+11 também em menor harmônica).
- * Uma sensível forte indica tonalidade com cadência autêntica real.
- */
-function leadingToneEvidence(hist: number[], root: number, quality: 'major' | 'minor'): number {
-  // Para ambos, a sensível "sobe" para a tônica (7ª maior = root+11)
+function subdominantSupport(hist: number[], root: number): number {
+  const maxH = Math.max(...hist, 1e-9);
+  return hist[(root + 5) % 12] / maxH;
+}
+
+function leadingToneEvidence(hist: number[], root: number): number {
   const lt = hist[(root + 11) % 12];
-  const tonic = hist[root];
-  if (tonic + lt < 1e-6) return 0;
-  // Sensível é "significativa" quando aparece junto da tônica (cadência)
-  return Math.min(1, lt / Math.max(tonic, 1e-6));
+  const maxH = Math.max(...hist, 1e-9);
+  return Math.min(1, lt / maxH);
+}
+
+// ─── Hints musicais (pistas contextuais vindas do histórico de notas) ──
+export interface KeyHints {
+  firstStablePc?: number | null;
+  lastPhraseEndPc?: number | null;
+  longestSustainedPc?: number | null;
 }
 
 export interface KeyResult {
   root: number;
   quality: 'major' | 'minor';
-  confidence: number;        // 0..1 score combinado
+  confidence: number;
   breakdown?: {
     pearson: number;
     signature: number;
     third: number;
-    tonic: number;
-    leadingTone: number;
+    tonicity: number;
+    cadence: number;
+    firstNote: number;
+    longest: number;
   };
 }
 
@@ -102,27 +131,64 @@ export interface KeyScoreEntry {
   score: number;
 }
 
+function computeKeyScore(
+  hist: number[],
+  root: number,
+  quality: 'major' | 'minor',
+  hints?: KeyHints
+): { score: number; breakdown: NonNullable<KeyResult['breakdown']> } {
+  const profile = quality === 'major' ? rotate(KK_MAJOR, root) : rotate(KK_MINOR, root);
+  const p = Math.max(0, pearson(hist, profile));
+  const sf = signatureFit(hist, root, quality);
+  const tb = thirdBalance(hist, root);
+  const thirdBonus = quality === 'major' ? Math.max(0, tb) : Math.max(0, -tb);
+  const tc = tonicCentrality(hist, root);
+  const sd = subdominantSupport(hist, root);
+  const lt = leadingToneEvidence(hist, root);
+
+  // Bônus contextuais — só pontuam se o hint bate com o root do candidato
+  const cadenceBonus = hints?.lastPhraseEndPc === root ? 1 : 0;
+  const firstNoteBonus = hints?.firstStablePc === root ? 1 : 0;
+  const longestBonus = hints?.longestSustainedPc === root ? 1 : 0;
+
+  // Prior levíssimo pra maior (literatura ocidental é ~60/40 maior/menor)
+  const rmb = quality === 'major' ? 0.03 : 0;
+
+  const score =
+    0.15 * p +
+    0.10 * sf +
+    0.18 * thirdBonus +
+    0.22 * tc +
+    0.09 * cadenceBonus +
+    0.08 * firstNoteBonus +
+    0.05 * longestBonus +
+    0.05 * sd +
+    0.05 * lt +
+    rmb;
+
+  return {
+    score,
+    breakdown: {
+      pearson: p,
+      signature: sf,
+      third: thirdBonus,
+      tonicity: tc,
+      cadence: cadenceBonus,
+      firstNote: firstNoteBonus,
+      longest: longestBonus,
+    },
+  };
+}
+
 /**
- * Computa scores para TODOS os 24 candidatos (12 maj + 12 min).
- * Usado pelo acumulador bayesiano no hook.
+ * Scoring de TODOS os 24 candidatos (12 maj + 12 min).
+ * Usado pelo acumulador bayesiano no hook (EMA para estabilidade).
  */
-export function scoreAllKeys(hist: number[]): KeyScoreEntry[] {
+export function scoreAllKeys(hist: number[], hints?: KeyHints): KeyScoreEntry[] {
   const out: KeyScoreEntry[] = [];
   for (let r = 0; r < 12; r++) {
-    const majProfile = rotate(KK_MAJOR, r);
-    const minProfile = rotate(KK_MINOR, r);
-    const pM = Math.max(0, pearson(hist, majProfile));
-    const pN = Math.max(0, pearson(hist, minProfile));
-    const sM = signatureFit(hist, r, 'major');
-    const sN = signatureFit(hist, r, 'minor');
-    const tb = thirdBalance(hist, r);
-    const te = tonicEvidence(hist, r);
-    const ltM = leadingToneEvidence(hist, r, 'major');
-    const ltN = leadingToneEvidence(hist, r, 'minor');
-    const majThird = Math.max(0, tb);
-    const minThird = Math.max(0, -tb);
-    const sMaj = 0.35 * pM + 0.25 * sM + 0.20 * majThird + 0.10 * te + 0.10 * ltM;
-    const sMin = 0.35 * pN + 0.25 * sN + 0.20 * minThird + 0.10 * te + 0.10 * ltN;
+    const { score: sMaj } = computeKeyScore(hist, r, 'major', hints);
+    const { score: sMin } = computeKeyScore(hist, r, 'minor', hints);
     out.push({ root: r, quality: 'major', score: sMaj });
     out.push({ root: r, quality: 'minor', score: sMin });
   }
@@ -130,60 +196,21 @@ export function scoreAllKeys(hist: number[]): KeyScoreEntry[] {
 }
 
 /**
- * Detecta tom a partir de um histograma ponderado por duração/clarity (não contagem).
- * 
- * Diferença crítica vs versão anterior:
- *   1. O histograma DEVE refletir peso musical (duration × clarity), não contagem
- *   2. Score multi-critério — cada camada ataca um tipo de ambiguidade diferente
- *   3. 3rd-degree balance resolve DIRETAMENTE maj vs min relativos
+ * Detecta tom a partir de um histograma ponderado por duração/clarity.
+ * O parâmetro `hints` é fundamental pra resolver ambiguidade maior/relativo-menor.
  */
-export function detectKeyFromHistogram(hist: number[]): KeyResult {
-  let best: KeyResult = {
-    root: 0, quality: 'major', confidence: -Infinity,
-  };
+export function detectKeyFromHistogram(hist: number[], hints?: KeyHints): KeyResult {
+  let best: KeyResult = { root: 0, quality: 'major', confidence: -Infinity };
 
   for (let r = 0; r < 12; r++) {
-    const majProfile = rotate(KK_MAJOR, r);
-    const minProfile = rotate(KK_MINOR, r);
+    const majR = computeKeyScore(hist, r, 'major', hints);
+    const minR = computeKeyScore(hist, r, 'minor', hints);
 
-    const pM = Math.max(0, pearson(hist, majProfile));
-    const pN = Math.max(0, pearson(hist, minProfile));
-    const sM = signatureFit(hist, r, 'major');
-    const sN = signatureFit(hist, r, 'minor');
-    const tb = thirdBalance(hist, r);   // -1..+1
-    const te = tonicEvidence(hist, r);  // 0..1
-    const ltM = leadingToneEvidence(hist, r, 'major');
-    const ltN = leadingToneEvidence(hist, r, 'minor');
-
-    // Normalizar thirdBalance a [0..1] para cada direção
-    const majThird = Math.max(0, tb);    // só positivo (M3 > m3 → major)
-    const minThird = Math.max(0, -tb);   // só positivo (m3 > M3 → minor)
-
-    const scoreMajor =
-      0.35 * pM +
-      0.25 * sM +
-      0.20 * majThird +
-      0.10 * te +
-      0.10 * ltM;
-
-    const scoreMinor =
-      0.35 * pN +
-      0.25 * sN +
-      0.20 * minThird +
-      0.10 * te +
-      0.10 * ltN;
-
-    if (scoreMajor > best.confidence) {
-      best = {
-        root: r, quality: 'major', confidence: scoreMajor,
-        breakdown: { pearson: pM, signature: sM, third: majThird, tonic: te, leadingTone: ltM },
-      };
+    if (majR.score > best.confidence) {
+      best = { root: r, quality: 'major', confidence: majR.score, breakdown: majR.breakdown };
     }
-    if (scoreMinor > best.confidence) {
-      best = {
-        root: r, quality: 'minor', confidence: scoreMinor,
-        breakdown: { pearson: pN, signature: sN, third: minThird, tonic: te, leadingTone: ltN },
-      };
+    if (minR.score > best.confidence) {
+      best = { root: r, quality: 'minor', confidence: minR.score, breakdown: minR.breakdown };
     }
   }
 

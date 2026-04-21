@@ -41,7 +41,7 @@
 
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import { detectKeyFromHistogram, scoreAllKeys, KeyResult } from '../utils/keyDetector';
+import { detectKeyFromHistogram, scoreAllKeys, KeyResult, KeyHints } from '../utils/keyDetector';
 import { usePitchEngine } from '../audio/usePitchEngine';
 import type { PitchEvent, PitchErrorReason } from '../audio/types';
 import { frequencyToMidi, midiToPitchClass, formatKeyDisplay } from '../utils/noteUtils';
@@ -345,20 +345,29 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     }
   }, []);
 
-  // ── Histograma com pesos MUSICAIS (baseado em NOTE EVENTS) ──────────────
+  // ── Histograma com pesos MUSICAIS + hints contextuais ──────────────────
   // Agrupa frames consecutivos de mesma pitch class em "events" (notas musicais).
   // Cada evento contribui UMA VEZ ao histograma, com peso = duração × rms_médio.
   // Isso evita que notas sustentadas inflem artificialmente o histograma.
-  const buildHistogram = useCallback((history: NoteEvent[], now: number): number[] => {
+  //
+  // Retorna TAMBÉM hints musicais críticos pra distinguir maior vs relativo menor:
+  //  - firstStablePc: primeira nota estável da janela (candidata a tônica)
+  //  - lastPhraseEndPc: última nota sustentada (resolução melódica — tônica de repouso)
+  //  - longestSustainedPc: a nota mais sustentada de toda a janela
+  const buildHistogram = useCallback((
+    history: NoteEvent[],
+    now: number
+  ): { histogram: number[]; hints: KeyHints } => {
     const histogram = new Array(12).fill(0);
     const uniqueCount = new Array(12).fill(0);
-    // Usando array-box para evitar problema de type narrowing do TS
-    const sustainedBox: Array<{ pc: number; frames: number }> = [];
     let lastPc: number | null = null;
     let eventStart = 0;
     let eventEnd = 0;
     let eventRmsSum = 0;
     let eventFrameCount = 0;
+
+    // Array de todos os eventos (pc, duração, rms médio) pra extrair hints depois
+    const events: { pc: number; durMs: number; rmsAvg: number; frames: number }[] = [];
 
     function commit() {
       if (lastPc === null || eventFrameCount < 2) return;
@@ -369,10 +378,7 @@ export function useKeyDetection(): UseKeyDetectionReturn {
       const weight = Math.sqrt(durMs / 500) * rmsAvg * decay;
       histogram[lastPc] += weight;
       uniqueCount[lastPc] += 1;
-      if (eventFrameCount >= 4) {
-        sustainedBox.length = 0;
-        sustainedBox.push({ pc: lastPc, frames: eventFrameCount });
-      }
+      events.push({ pc: lastPc, durMs, rmsAvg, frames: eventFrameCount });
     }
 
     for (const n of history) {
@@ -389,16 +395,14 @@ export function useKeyDetection(): UseKeyDetectionReturn {
         eventFrameCount++;
       }
     }
-    commit(); // flush final
+    commit();
 
-    // ── Boost por diversidade: se nota apareceu em MÚLTIPLOS eventos distintos,
-    //    é mais provável ser nota da escala (não apenas sustain random)
+    // ── Boost por diversidade ──────────────────────────────────────────
     for (let i = 0; i < 12; i++) {
       if (uniqueCount[i] >= 2) histogram[i] *= 1.0 + Math.log1p(uniqueCount[i]) * 0.3;
     }
 
-    // ── Cadência: últimas ~2 notas distintas ganham peso extra ──
-    // Notas finais definem tonalidade (ex: "fim de frase na tônica")
+    // ── Cadência: últimas ~2 notas distintas ganham peso extra ──────────
     const recentUnique: number[] = [];
     for (let i = history.length - 1; i >= 0 && recentUnique.length < 2; i--) {
       const pc = history[i].pitchClass;
@@ -408,12 +412,33 @@ export function useKeyDetection(): UseKeyDetectionReturn {
       histogram[pc] *= CADENCE_BOOST;
     }
 
-    // ── Tônica sustentada: boost LEVE (já contido pelo sqrt acima) ──
-    if (sustainedBox.length > 0) {
-      histogram[sustainedBox[0].pc] *= 1.15;
+    // ── Extrai HINTS MUSICAIS CRÍTICOS ────────────────────────────────
+    // 1) First stable pitch class: primeiro evento com ≥ 3 frames (voz estabilizada)
+    let firstStablePc: number | null = null;
+    for (const ev of events) {
+      if (ev.frames >= 3) { firstStablePc = ev.pc; break; }
+    }
+    // Fallback: primeiro evento simples
+    if (firstStablePc === null && events.length > 0) firstStablePc = events[0].pc;
+
+    // 2) Last phrase-end pc: última nota ≥ 300ms de duração (repouso melódico)
+    let lastPhraseEndPc: number | null = null;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].durMs >= 300) { lastPhraseEndPc = events[i].pc; break; }
+    }
+    if (lastPhraseEndPc === null && events.length > 0) {
+      lastPhraseEndPc = events[events.length - 1].pc;
     }
 
-    return histogram;
+    // 3) Longest sustained pc: evento com maior durMs na janela
+    let longestSustainedPc: number | null = null;
+    let maxDur = 0;
+    for (const ev of events) {
+      if (ev.durMs > maxDur) { maxDur = ev.durMs; longestSustainedPc = ev.pc; }
+    }
+
+    const hints: KeyHints = { firstStablePc, lastPhraseEndPc, longestSustainedPc };
+    return { histogram, hints };
   }, []);
 
   // ── analyzeKey: máquina de estados com shadow tracking ──────────────────
@@ -461,11 +486,11 @@ export function useKeyDetection(): UseKeyDetectionReturn {
       return;
     }
 
-    const histogram = buildHistogram(fullHistory, now);
+    const { histogram, hints } = buildHistogram(fullHistory, now);
 
     // ═══ ACUMULADOR BAYESIANO ═══
-    // Computa scores de TODOS os 24 tons candidatos neste cycle
-    const allScores = scoreAllKeys(histogram);
+    // Computa scores de TODOS os 24 tons candidatos neste cycle (com HINTS)
+    const allScores = scoreAllKeys(histogram, hints);
     // EMA com α=0.90 → grande memória, 10% de peso no cycle atual
     // Resultado: oscilações entre cycles se dissolvem em ~5-6 cycles (1.5s)
     const alpha = 0.90;
@@ -611,8 +636,8 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     // ── Análise oculta: usar JANELA RECENTE (4s) para capturar mudanças ──
     let candidateKey = result;
     if (recentHistory.length >= 6) {
-      const recentHist = buildHistogram(recentHistory, now);
-      const recentResult = detectKeyFromHistogram(recentHist);
+      const { histogram: recentHist, hints: recentHints } = buildHistogram(recentHistory, now);
+      const recentResult = detectKeyFromHistogram(recentHist, recentHints);
       if (recentResult.confidence > 0.50) {
         candidateKey = recentResult;
       }
@@ -912,7 +937,20 @@ export function useKeyDetection(): UseKeyDetectionReturn {
       }
     }
 
-    const result = detectKeyFromHistogram(histogram);
+    // ▶ HINTS MUSICAIS: first-note, phrase-end e longest-sustained
+    //   Estes são CRÍTICOS pra desempatar maior vs relativo menor
+    let longestPc: number | null = null;
+    let maxDur = 0;
+    for (const ev of events) {
+      if (ev.durMs > maxDur) { maxDur = ev.durMs; longestPc = ev.pc; }
+    }
+    const hints: KeyHints = {
+      firstStablePc,
+      lastPhraseEndPc,
+      longestSustainedPc: longestPc,
+    };
+
+    const result = detectKeyFromHistogram(histogram, hints);
     return { key: result, conf: result.confidence };
   }, []);
 
