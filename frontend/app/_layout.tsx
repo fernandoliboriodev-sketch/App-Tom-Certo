@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Stack, SplashScreen } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -16,49 +16,34 @@ import {
 } from '@expo-google-fonts/manrope';
 import { AuthProvider, useAuth } from '../src/auth/AuthContext';
 import ActivationScreen from '../src/auth/ActivationScreen';
-import LoadingScreen from '../src/components/LoadingScreen';
 
-// Esconde splash nativo IMEDIATAMENTE — o LoadingScreen JS assume a partir daí.
+// Esconde splash nativo IMEDIATAMENTE — app vai direto pra tela de login.
 SplashScreen.hideAsync().catch(() => {});
 
-// ── Tempos ────────────────────────────────────────────────────────
-const MIN_LOADING_MS = 900;          // tempo mínimo de exibição do LoadingScreen
-const FADE_OUT_MS = 280;             // fade-out do loading
-const UPDATE_CHECK_TIMEOUT_MS = 3500;// aborta check de update se demorar demais
-const UPDATE_TEXT_DELAY_MS = 800;    // só mostra "Verificando atualizações..." após 800ms
+// ── OTA em BACKGROUND, 100% silencioso, SEM bloquear UI, SEM reload ──
+// Expo padrão já baixa em background; aqui só reforçamos se alguma lib
+// estiver configurada diferente. NUNCA chamar reloadAsync aqui.
+function kickBackgroundOtaCheck() {
+  (async () => {
+    try {
+      if (!Updates.isEnabled) return;
+      // @ts-ignore
+      if (typeof __DEV__ !== 'undefined' && __DEV__) return;
+      const res = await Updates.checkForUpdateAsync();
+      if (res?.isAvailable) {
+        // Só baixa. Será aplicado NA PRÓXIMA abertura do app.
+        await Updates.fetchUpdateAsync();
+      }
+    } catch {
+      /* silencioso — ignora falhas de rede */
+    }
+  })();
+}
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { status } = useAuth();
   if (status !== 'authenticated') return <ActivationScreen />;
   return <>{children}</>;
-}
-
-// ── Check de OTA com timeout agressivo ──────────────────────────
-// Se há update → baixa e reload IMEDIATO (não espera próxima abertura)
-// Se não há / timeout → segue com bundle em cache
-async function checkAndApplyUpdate(): Promise<boolean> {
-  try {
-    if (!Updates.isEnabled) return false;
-    // @ts-ignore __DEV__ existe em RN global
-    if (typeof __DEV__ !== 'undefined' && __DEV__) return false;
-
-    const checkPromise = Updates.checkForUpdateAsync();
-    const timeoutPromise = new Promise<null>((_, rej) =>
-      setTimeout(() => rej(new Error('update-timeout')), UPDATE_CHECK_TIMEOUT_MS)
-    );
-    const res: any = await Promise.race([checkPromise, timeoutPromise]);
-
-    if (res?.isAvailable) {
-      // Baixa novo bundle (com o resto do timeout)
-      await Updates.fetchUpdateAsync();
-      // Reload já aplica — retorna true só pra caller saber
-      await Updates.reloadAsync();
-      return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
 }
 
 export default function RootLayout() {
@@ -70,85 +55,36 @@ export default function RootLayout() {
     Manrope_600SemiBold,
   });
 
-  // Controla quando o LoadingScreen começa a esvanecer e quando some
-  const [fadingOut, setFadingOut] = useState(false);
-  const [loaderGone, setLoaderGone] = useState(false);
-  const [showUpdateHint, setShowUpdateHint] = useState(false);
-
-  const bootedRef = useRef(false);
-
   useEffect(() => {
+    // Garante splash escondido
     SplashScreen.hideAsync().catch(() => {});
-
-    if (bootedRef.current) return;
-    bootedRef.current = true;
-
-    const startAt = Date.now();
-
-    // ── Dispara checagem de OTA em paralelo com fonts ──
-    // Se encontrar update, aplica ANTES de revelar UI
-    const updatePromise = checkAndApplyUpdate();
-
-    // Mostra dica "Verificando atualizações…" se a checagem tiver demorado > 800ms
-    const hintTimer = setTimeout(() => setShowUpdateHint(true), UPDATE_TEXT_DELAY_MS);
-
-    (async () => {
-      // Se a checagem encontrou update, o reload acontece e esse código nem
-      // chega ao fim. Se não, continua.
-      await updatePromise;
-      clearTimeout(hintTimer);
-      setShowUpdateHint(false);
-
-      // Aguarda fontes
-      const waitFonts = async () => {
-        const check = () => !!(fontsLoaded || fontError);
-        if (check()) return;
-        await new Promise<void>((resolve) => {
-          const t = setInterval(() => {
-            if (check()) { clearInterval(t); resolve(); }
-          }, 80);
-        });
-      };
-      await waitFonts();
-
-      // Garante tempo mínimo de loading
-      const elapsed = Date.now() - startAt;
-      const wait = Math.max(0, MIN_LOADING_MS - elapsed);
-      if (wait > 0) await new Promise(r => setTimeout(r, wait));
-
-      // Fade-out e remove
-      setFadingOut(true);
-      setTimeout(() => setLoaderGone(true), FADE_OUT_MS + 40);
-    })();
-
-    return () => clearTimeout(hintTimer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Dispara checagem de OTA em segundo plano após 1s (não bloqueia)
+    const t = setTimeout(kickBackgroundOtaCheck, 1000);
+    return () => clearTimeout(t);
   }, []);
 
-  const showShellContent = fontsLoaded || fontError;
+  // Enquanto fontes NÃO carregaram: só um fundo preto (SEM logo, SEM texto,
+  // SEM loading screen). Frações de segundo — quase imperceptível.
+  if (!fontsLoaded && !fontError) {
+    return <View style={ss.bgBlack} />;
+  }
 
+  // App normal — vai DIRETO pra ActivationScreen ou conteúdo autenticado
   return (
     <SafeAreaProvider>
       <StatusBar style="light" backgroundColor="#000000" />
       <View style={ss.bgBlack} />
-
-      {showShellContent ? (
-        <AuthProvider>
-          <AuthGate>
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                animation: 'none',
-                contentStyle: { backgroundColor: '#000000' },
-              }}
-            />
-          </AuthGate>
-        </AuthProvider>
-      ) : null}
-
-      {!loaderGone ? (
-        <LoadingScreen fadingOut={fadingOut} hint={showUpdateHint ? 'Verificando atualizações…' : null} />
-      ) : null}
+      <AuthProvider>
+        <AuthGate>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              animation: 'none',
+              contentStyle: { backgroundColor: '#000000' },
+            }}
+          />
+        </AuthGate>
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }
