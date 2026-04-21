@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { Stack, SplashScreen } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -16,8 +16,10 @@ import {
 import { AuthProvider, useAuth } from '../src/auth/AuthContext';
 import ActivationScreen from '../src/auth/ActivationScreen';
 
-// Manter splash nativo enquanto fontes carregam — UX mais rápida
-SplashScreen.preventAutoHideAsync().catch(() => {});
+// Esconde splash nativo IMEDIATAMENTE — app abre direto na tela de login.
+// As fontes carregam em background; até terminarem, usa fontes de sistema
+// (React Native faz fallback automático).
+SplashScreen.hideAsync().catch(() => {});
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { status } = useAuth();
@@ -27,7 +29,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
-  // ── Font loading CENTRALIZADO: 1 única vez para todo o app ──
+  // ── Carregamento de fontes em background ── (não bloqueia a renderização)
   const [fontsLoaded, fontError] = useFonts({
     Outfit_700Bold,
     Outfit_800ExtraBold,
@@ -37,18 +39,16 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
+    // Garante que o splash está escondido (redundância)
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, fontError]);
 
-  // Enquanto fontes carregam: splash nativo continua visível (mais rápido que render JS)
+  // Enquanto fontes NÃO carregaram: render View preto (sem logo, sem texto)
+  // para evitar flash de fontes do sistema feias no primeiro frame.
   if (!fontsLoaded && !fontError) {
-    return (
-      <View style={ss.fallback}>
-        <Text style={ss.fallbackTxt}>Tom Certo</Text>
-      </View>
-    );
+    return <View style={ss.fallback} />;
   }
 
   return (
@@ -73,13 +73,5 @@ const ss = StyleSheet.create({
   fallback: {
     flex: 1,
     backgroundColor: '#000000',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fallbackTxt: {
-    fontSize: 22,
-    color: '#FFB020',
-    letterSpacing: -0.5,
-    fontWeight: '700',
   },
 });
