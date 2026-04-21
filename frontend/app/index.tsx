@@ -202,7 +202,7 @@ function ActiveScreen({ det }: { det: ReturnType<typeof useKeyDetection> }) {
   const {
     detectionState, currentKey, keyTier, liveConfidence, changeSuggestion,
     currentNote, recentNotes, audioLevel, isStable, isRunning,
-    softInfo, reset,
+    softInfo, reset, phraseStage, phrasesAnalyzed,
   } = det;
 
   const confirmedKey = keyTier === 'confirmed' ? currentKey : null;
@@ -211,20 +211,19 @@ function ActiveScreen({ det }: { det: ReturnType<typeof useKeyDetection> }) {
   const confPct = Math.round(Math.max(0, liveConfidence) * 100);
   const confColor = confPct >= 75 ? C.green : confPct >= 55 ? C.amber : C.text2;
 
+  // ── Status label baseado nos 4 estágios do detector por frases ──
   const statusLabel =
-    detectionState === 'listening' ? 'OUVINDO' :
-    detectionState === 'analyzing' ? 'ANALISANDO' :
-    detectionState === 'provisional' ? 'REFINANDO' :
-    detectionState === 'change_possible' ? 'MUDANÇA?' :
-    detectionState === 'confirmed' ? (isStable ? 'ESTÁVEL' : 'CONFIRMADO') :
+    phraseStage === 'listening' ? (phrasesAnalyzed === 0 ? 'ESCUTANDO' : 'AGUARDANDO FRASE') :
+    phraseStage === 'probable' ? `PROVÁVEL · ${phrasesAnalyzed} FRASE${phrasesAnalyzed > 1 ? 'S' : ''}` :
+    phraseStage === 'confirmed' ? `CONFIRMANDO · ${phrasesAnalyzed} FRASES` :
+    phraseStage === 'definitive' ? `DEFINITIVO · ${phrasesAnalyzed} FRASES` :
     'PRONTO';
 
   const statusDotColor =
-    detectionState === 'listening' ? C.text2 :
-    detectionState === 'analyzing' ? C.amber :
-    detectionState === 'provisional' ? C.amber :
-    detectionState === 'change_possible' ? C.blue :
-    detectionState === 'confirmed' ? C.green :
+    phraseStage === 'listening' ? C.text2 :
+    phraseStage === 'probable' ? C.amber :
+    phraseStage === 'confirmed' ? C.amber :
+    phraseStage === 'definitive' ? C.green :
     C.text3;
 
   const harmonicField = useMemo(
@@ -335,7 +334,11 @@ function ActiveScreen({ det }: { det: ReturnType<typeof useKeyDetection> }) {
                   ss.keyCardBadgeTxt,
                   { color: confirmedKey ? C.green : C.amber },
                 ]}>
-                  {confirmedKey ? 'TOM CONFIRMADO' : 'TOM PROVÁVEL'}
+                  {phraseStage === 'definitive'
+                    ? 'TOM DEFINITIVO'
+                    : phraseStage === 'confirmed'
+                      ? 'CONFIRMANDO MODO'
+                      : 'TOM PROVÁVEL'}
                 </Text>
               </View>
               <Text style={[ss.keyCardConfPct, { color: confirmedKey ? C.green : confColor }]}>{confPct}%</Text>
