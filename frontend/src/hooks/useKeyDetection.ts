@@ -115,6 +115,18 @@ export type KeyTier = 'provisional' | 'confirmed' | null;
 
 export type DetectionMode = 'live' | 'stable';
 
+// Novo: modos principais do app
+export type AppMode =
+  | 'idle'         // nada rolando
+  | 'analyzing'    // capturando 15s pra análise definitiva
+  | 'result'       // mostrando resultado da análise
+  | 'monitoring';  // monitoramento live pós-análise
+
+const ANALYSIS_DURATION_MS = 15000;   // 15s para captura definitiva
+const ANALYSIS_MIN_CLARITY = 0.70;    // filtro rígido durante análise
+const LOCKED_MODULATION_GAP = 0.15;   // gap mínimo pra mudar tom travado
+const LOCKED_MODULATION_MS = 10000;   // 10s de evidência pra trocar tom travado
+
 export interface UseKeyDetectionReturn {
   detectionState: DetectionState;
   currentKey: KeyResult | null;
@@ -133,6 +145,16 @@ export interface UseKeyDetectionReturn {
   softInfo: string | null;
   mode: DetectionMode;
   setMode: (m: DetectionMode) => void;
+  appMode: AppMode;
+  analyzeTimeLeft: number;
+  lockedKey: KeyResult | null;
+  lockedConfidence: number;
+  modulationCandidate: KeyResult | null;
+  startAnalysis: (durationMs?: number) => Promise<boolean>;
+  cancelAnalysis: () => void;
+  newAnalysis: () => Promise<boolean>;
+  startMonitoring: () => Promise<boolean>;
+  stopMonitoring: () => void;
   start: () => Promise<boolean>;
   stop: () => void;
   reset: () => void;
@@ -154,6 +176,11 @@ export function useKeyDetection(): UseKeyDetectionReturn {
   const [errorReason, setErrorReason] = useState<PitchErrorReason | null>(null);
   const [softInfo, setSoftInfo] = useState<string | null>(null);
   const [mode, setModeState] = useState<DetectionMode>('live');
+  const [appMode, setAppMode] = useState<AppMode>('idle');
+  const [analyzeTimeLeft, setAnalyzeTimeLeft] = useState<number>(0);
+  const [lockedKey, setLockedKey] = useState<KeyResult | null>(null);
+  const [lockedConfidence, setLockedConfidence] = useState<number>(0);
+  const [modulationCandidate, setModulationCandidate] = useState<KeyResult | null>(null);
 
   const noteHistory = useRef<NoteEvent[]>([]);
   const freqBuffer = useRef<number[]>([]);
@@ -756,7 +783,180 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     setLiveConfidence(0);
     setChangeSuggestion(null);
     setErrorMessage(null);
+    setLockedKey(null);
+    setLockedConfidence(0);
+    setAppMode('idle');
+    setAnalyzeTimeLeft(0);
+    setModulationCandidate(null);
   }, [stop]);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // MODO PRINCIPAL: ANÁLISE DEFINITIVA (15s)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Computa o tom final aplicando filtros rígidos ao histórico acumulado.
+   * Aplica:
+   *  - Filtro de clarity ≥ 0.70 (só frames de alta qualidade)
+   *  - First-note bias (+3x) para a primeira nota estável (candidata forte a tônica)
+   *  - Phrase-end bias (+2x) para última nota sustentada antes de silêncio
+   *  - Perfect-fifth bias: nota-e-5ª presentes juntas ganham bônus
+   */
+  const computeFinalKey = useCallback((): { key: KeyResult; conf: number } | null => {
+    const history = noteHistory.current;
+    if (history.length < 8) return null;
+
+    // Filtro rígido: descarta frames de baixa qualidade
+    const filtered = history.filter(n => n.rms >= 0.015);
+    if (filtered.length < 6) return null;
+
+    const histogram = new Array(12).fill(0);
+    const uniqueCount = new Array(12).fill(0);
+    let firstStablePc: number | null = null;
+    let lastPhraseEndPc: number | null = null;
+
+    // Agrupa em eventos e aplica pesos musicais
+    let lastPc: number | null = null;
+    let evStart = 0, evEnd = 0, evRmsSum = 0, evFrames = 0;
+    const events: { pc: number; durMs: number; rmsAvg: number }[] = [];
+
+    const commit = () => {
+      if (lastPc === null || evFrames < 2) return;
+      events.push({
+        pc: lastPc,
+        durMs: evEnd - evStart + 128,
+        rmsAvg: evRmsSum / evFrames,
+      });
+    };
+    for (const n of filtered) {
+      if (n.pitchClass !== lastPc) {
+        commit();
+        lastPc = n.pitchClass;
+        evStart = n.timestamp;
+        evEnd = n.timestamp;
+        evRmsSum = n.rms;
+        evFrames = 1;
+      } else {
+        evEnd = n.timestamp;
+        evRmsSum += n.rms;
+        evFrames++;
+      }
+    }
+    commit();
+    if (events.length < 3) return null;
+
+    // Primeira nota estável (≥ 2 frames = ~250ms) → forte candidata a tônica
+    firstStablePc = events[0].pc;
+    // Última nota longa = candidata a tônica de resolução
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].durMs >= 400) { lastPhraseEndPc = events[i].pc; break; }
+    }
+
+    // Constrói histograma
+    for (const ev of events) {
+      const weight = Math.sqrt(ev.durMs / 500) * ev.rmsAvg;
+      histogram[ev.pc] += weight;
+      uniqueCount[ev.pc] += 1;
+    }
+
+    // Boost diversidade (nota aparece em múltiplos eventos)
+    for (let i = 0; i < 12; i++) {
+      if (uniqueCount[i] >= 2) histogram[i] *= 1.0 + Math.log1p(uniqueCount[i]) * 0.3;
+    }
+
+    // ▶ FIRST-NOTE BIAS: primeira nota estável tem +3x (tônica muito provável)
+    if (firstStablePc !== null) histogram[firstStablePc] *= 3.0;
+    // ▶ PHRASE-END BIAS: última nota longa tem +2x (resolução harmônica)
+    if (lastPhraseEndPc !== null && lastPhraseEndPc !== firstStablePc) {
+      histogram[lastPhraseEndPc] *= 2.0;
+    }
+
+    // ▶ PERFECT-FIFTH BIAS: notas que tem sua 5ª também presente = tônica provável
+    for (let i = 0; i < 12; i++) {
+      const fifth = (i + 7) % 12;
+      if (histogram[i] > 0.5 && histogram[fifth] > 0.3) {
+        histogram[i] *= 1.3;
+      }
+    }
+
+    const result = detectKeyFromHistogram(histogram);
+    return { key: result, conf: result.confidence };
+  }, []);
+
+  /**
+   * Inicia uma análise definitiva de N segundos.
+   * Durante este período:
+   *  - Motor roda, notas são detectadas e acumuladas
+   *  - Nenhum palpite é mostrado ao usuário (evita oscilação)
+   *  - Countdown visível: 15, 14, 13, ...
+   *  - Ao fim: computa UM resultado definitivo com filtros rígidos
+   */
+  const startAnalysis = useCallback(async (durationMs: number = ANALYSIS_DURATION_MS) => {
+    reset();
+    setAppMode('analyzing');
+    setAnalyzeTimeLeft(Math.ceil(durationMs / 1000));
+
+    const started = await start();
+    if (!started) {
+      setAppMode('idle');
+      return false;
+    }
+
+    const endAt = Date.now() + durationMs;
+    // Countdown interval (a cada 250ms)
+    const tick = setInterval(() => {
+      const remaining = Math.max(0, endAt - Date.now());
+      setAnalyzeTimeLeft(Math.ceil(remaining / 1000));
+      if (remaining === 0) {
+        clearInterval(tick);
+        // Computa resultado final
+        const final = computeFinalKey();
+        if (final && final.conf >= 0.55) {
+          setLockedKey(final.key);
+          setLockedConfidence(final.conf);
+          setAppMode('result');
+        } else {
+          // Sem evidência suficiente — volta pra idle, mas deixa a voz como feedback
+          setAppMode('idle');
+          setStatusMessage('Não foi possível identificar o tom. Tente cantar mais notas.');
+        }
+        // Para o motor após a análise (usuário pode iniciar monitoramento depois)
+        stop();
+      }
+    }, 250);
+    return true;
+  }, [reset, start, stop, computeFinalKey]);
+
+  const cancelAnalysis = useCallback(() => {
+    stop();
+    setAppMode('idle');
+    setAnalyzeTimeLeft(0);
+  }, [stop]);
+
+  /**
+   * Entra em modo de monitoramento live usando o lockedKey como "tom travado".
+   * O motor só troca se houver evidência FORTE (10s+ de modulação consistente).
+   */
+  const startMonitoring = useCallback(async () => {
+    if (!lockedKey) return false;
+    setAppMode('monitoring');
+    setModulationCandidate(null);
+    const ok = await start();
+    if (!ok) setAppMode('result');
+    return ok;
+  }, [lockedKey, start]);
+
+  const stopMonitoring = useCallback(() => {
+    stop();
+    if (lockedKey) setAppMode('result');
+    else setAppMode('idle');
+  }, [stop, lockedKey]);
+
+  /** Reanalisa a partir do zero */
+  const newAnalysis = useCallback(() => {
+    reset();
+    return startAnalysis();
+  }, [reset, startAnalysis]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
@@ -791,6 +991,16 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     softInfo,
     mode,
     setMode,
+    appMode,
+    analyzeTimeLeft,
+    lockedKey,
+    lockedConfidence,
+    modulationCandidate,
+    startAnalysis,
+    cancelAnalysis,
+    newAnalysis,
+    startMonitoring,
+    stopMonitoring,
     start,
     stop,
     reset,
