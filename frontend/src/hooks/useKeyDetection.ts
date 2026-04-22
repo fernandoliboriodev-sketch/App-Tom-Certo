@@ -22,6 +22,13 @@ import {
   DetectedNoteEvent,
   DetectionStage,
 } from '../utils/phraseKeyDetector';
+import {
+  TemporalBuffer,
+  buildWeightedHistogram,
+  rankAllKeys,
+  agreementMultiplier,
+  NoteSample,
+} from '../utils/tonalScorer';
 import { usePitchEngine } from '../audio/usePitchEngine';
 import type { PitchEvent, PitchErrorReason } from '../audio/types';
 import { frequencyToMidi, midiToPitchClass } from '../utils/noteUtils';
@@ -86,6 +93,8 @@ export function useKeyDetection(): UseKeyDetectionReturn {
   const [errorReason, setErrorReason] = useState<PitchErrorReason | null>(null);
   const [softInfo, setSoftInfo] = useState<string | null>(null);
   const [keyState, setKeyState] = useState<KeyDetectionState>(createInitialState());
+  // Multiplicador de concordância com o scorer (0.3..1.0). 1.0 = dois sistemas concordam.
+  const [agreementMul, setAgreementMul] = useState<number>(1.0);
 
   const engine = usePitchEngine();
 
@@ -102,6 +111,8 @@ export function useKeyDetection(): UseKeyDetectionReturn {
   const lastVoicedTimeRef = useRef<number>(0);
   const phraseNotesRef = useRef<DetectedNoteEvent[]>([]);
   const phraseStartTimeRef = useRef<number>(0);
+  // Buffer temporal deslizante (5s) — alimenta o scorer contextual
+  const tempBufferRef = useRef<TemporalBuffer>(new TemporalBuffer(5000));
 
   // ── Helpers ──────────────────────────────────────────────
   const addRecentNote = useCallback((pc: number) => {
@@ -132,6 +143,16 @@ export function useKeyDetection(): UseKeyDetectionReturn {
       durMs,
       rmsAvg,
     });
+    // Alimenta o buffer temporal (5s deslizante) para o scorer contextual
+    // Stability = proporção de frames que concordaram com a mediana (aqui
+    // aproximamos com min(1, frames/10) — mais frames = mais estável)
+    const stability = Math.min(1, curFramesRef.current / 10);
+    tempBufferRef.current.push({
+      pitchClass: curPcRef.current,
+      durMs,
+      stability,
+      timestamp: now,
+    });
     curCommittedRef.current = true;
     return true;
   }, []);
@@ -148,9 +169,33 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     const phrase = buildPhrase(notes);
     if (phrase) {
       setSoftInfo(`Frase capturada (${reason}): ${notes.length} notas`);
-      setKeyState(prev => ingestPhrase(prev, phrase));
+      setKeyState(prev => {
+        const next = ingestPhrase(prev, phrase);
+
+        // ═══ SCORER CONTEXTUAL (complementar) ═══
+        // Roda a fórmula: 0.35×aderência + 0.30×forçaTônica + 0.20×resolução
+        //                 + 0.15×estabilidade - 0.25×penalidade
+        try {
+          const samples = tempBufferRef.current.getSamples();
+          if (samples.length >= 3 && next.phrases.length >= 1) {
+            const hist = buildWeightedHistogram(samples);
+            const ranked = rankAllKeys(hist, samples, next.phrases);
+            const scorerWinner = ranked[0];
+            if (next.currentTonicPc !== null && next.quality) {
+              const mul = agreementMultiplier(
+                next.currentTonicPc,
+                next.quality,
+                scorerWinner
+              );
+              setAgreementMul(mul);
+            }
+          }
+        } catch { /* silencioso */ }
+
+        return next;
+      });
     } else {
-      setSoftInfo(`Frase descartada (${reason}): apenas ${notes.length} notas curtas`);
+      setSoftInfo(`Frase descartada (${reason}): ${notes.length} notas curtas`);
     }
   }, [commitCurNote]);
 
@@ -285,6 +330,8 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     lastVoicedTimeRef.current = 0;
     phraseNotesRef.current = [];
     phraseStartTimeRef.current = 0;
+    tempBufferRef.current.clear();
+    setAgreementMul(1.0);
     const ok = await engine.start(onPitch, onError);
     if (ok) setIsRunning(true);
     return ok;
@@ -340,10 +387,19 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     return () => clearInterval(t);
   }, [isRunning, closePhrase]);
 
+  // Aplica multiplicador de concordância com o scorer contextual
+  const finalConfidence = keyState.tonicConfidence * agreementMul;
+
+  // Se scorer e phrase-voting DISCORDAM significativamente (mul < 0.5),
+  // rebaixa o stage: "definitive" → "confirmed". Impede fala prematura de
+  // um tom quando os dois sistemas não estão alinhados.
+  const effectiveStage: DetectionStage =
+    agreementMul < 0.5 && keyState.stage === 'definitive' ? 'confirmed' : keyState.stage;
+
   // ── Mapping pra API compatível ───────────────────────────
   const detectionState: DetectionState = (() => {
     if (!isRunning) return 'idle';
-    switch (keyState.stage) {
+    switch (effectiveStage) {
       case 'listening': return 'listening';
       case 'probable': return 'provisional';
       case 'confirmed': return 'provisional';
@@ -352,20 +408,20 @@ export function useKeyDetection(): UseKeyDetectionReturn {
   })();
 
   const keyTier: KeyTier =
-    keyState.stage === 'listening' ? null :
-    keyState.stage === 'definitive' ? 'confirmed' :
-    keyState.stage === 'confirmed' ? 'confirmed' : 'provisional';
+    effectiveStage === 'listening' ? null :
+    effectiveStage === 'definitive' ? 'confirmed' :
+    effectiveStage === 'confirmed' ? 'confirmed' : 'provisional';
 
   const currentKey: KeyResult | null =
     keyState.currentTonicPc !== null && keyState.quality
-      ? { root: keyState.currentTonicPc, quality: keyState.quality, confidence: keyState.tonicConfidence }
+      ? { root: keyState.currentTonicPc, quality: keyState.quality, confidence: finalConfidence }
       : null;
 
   const statusMessage: string = (() => {
     if (!isRunning) return 'Pronto para detectar';
-    if (keyState.stage === 'listening') return 'Escutando...';
-    if (keyState.stage === 'probable') return 'Tônica provável';
-    if (keyState.stage === 'confirmed') return 'Tônica confirmada';
+    if (effectiveStage === 'listening') return 'Escutando...';
+    if (effectiveStage === 'probable') return 'Tônica provável';
+    if (effectiveStage === 'confirmed') return 'Tônica confirmada';
     return 'Tom definitivo';
   })();
 
@@ -373,19 +429,19 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     detectionState,
     currentKey,
     keyTier,
-    liveConfidence: keyState.tonicConfidence,
+    liveConfidence: finalConfidence,
     changeSuggestion: null,
     currentNote,
     recentNotes,
     audioLevel,
-    isStable: keyState.stage === 'definitive',
+    isStable: effectiveStage === 'definitive',
     statusMessage,
     isRunning,
     isSupported: engine.isSupported,
     errorMessage,
     errorReason,
     softInfo,
-    phraseStage: keyState.stage,
+    phraseStage: effectiveStage,
     phrasesAnalyzed: keyState.phrases.length,
     start,
     stop,
