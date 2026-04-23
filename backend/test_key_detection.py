@@ -92,6 +92,36 @@ def melody_in_minor(root_pc: int, octave: int = 4):
     return f1 + f2 + f3 + f4, durs1 + durs2 + durs3 + durs4
 
 
+def melody_major_drift_V_vi(root_pc: int, octave: int = 4):
+    """
+    CASO REAL REPORTADO: cantor em Sol Maior, IA confundiu com Ré Maior (V)
+    e Lá menor. Aqui: 8 frases onde 4 resolvem em V, 2 em vi (ii em menor),
+    só 2 na tônica. Um detector sem guard anti-grau confunde facilmente.
+    """
+    base = 12 + octave * 12 + root_pc
+    V = base + 7
+    IV = base + 5
+    vi = base + 9
+    ii = base + 2
+    III = base + 4
+    seven = base + 11
+    phrases = [
+        ([V, vi, V, IV, V], [280, 250, 280, 250, 650]),         # termina em V
+        ([base, III, V, IV, V], [280, 260, 280, 260, 650]),     # termina em V
+        ([III, V, IV, III, ii, vi], [250, 260, 260, 240, 250, 650]),  # termina em vi
+        ([base, III, vi], [280, 260, 650]),                     # termina em vi
+        ([III, IV, seven, V], [260, 260, 250, 650]),            # termina em V (com LT)
+        ([V, IV, III, ii, base], [280, 260, 260, 260, 650]),    # tônica
+        ([IV, V, III, ii, V], [260, 260, 260, 260, 650]),       # termina em V
+        ([III, ii, seven, base], [280, 260, 200, 650]),         # tônica
+    ]
+    all_midi, all_durs = [], []
+    for m, d in phrases:
+        all_midi.extend(m)
+        all_durs.extend(d)
+    return all_midi, all_durs
+
+
 TESTS = [
     ('Dó Maior',   lambda: melody_in_major(0),  'Dó Maior'),
     ('Ré Maior',   lambda: melody_in_major(2),  'Ré Maior'),
@@ -100,6 +130,11 @@ TESTS = [
     ('Lá menor',   lambda: melody_in_minor(9),  'Lá menor'),
     ('Mi menor',   lambda: melody_in_minor(4),  'Mi menor'),
     ('Si menor',   lambda: melody_in_minor(11), 'Si menor'),
+    # ═══ DRIFT REAL: Sol Maior com muita ênfase em V e vi ═══
+    # Esse é o caso EXATO reportado pelo user. Sistema v1 confundia com Ré Maior / Lá menor.
+    ('DRIFT Sol Maior (ênfase V/vi adversarial)', lambda: melody_major_drift_V_vi(7), 'Sol Maior'),
+    ('DRIFT Dó Maior (ênfase V/vi adversarial)', lambda: melody_major_drift_V_vi(0), 'Dó Maior'),
+    ('DRIFT Ré Maior (ênfase V/vi adversarial)', lambda: melody_major_drift_V_vi(2), 'Ré Maior'),
 ]
 
 

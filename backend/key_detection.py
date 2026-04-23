@@ -254,11 +254,115 @@ def score_key(hist: np.ndarray, phrases: List[List[Dict[str, Any]]], root: int, 
     }
 
 
+def compute_tonic_gravity(notes: List[Dict[str, Any]], phrases: List[List[Dict[str, Any]]]) -> np.ndarray:
+    """
+    Calcula a GRAVIDADE TONAL global por pitch class.
+    Pesos:
+      - Finais de frase (cadência): +8.0 por frase
+      - Notas longas ≥ 400ms: +3.0 por ocorrência
+      - Duração total: +0.003/ms
+      - Estabilidade (rms_conf ≥ 0.7 e dur ≥ 250ms): +2.0
+      - Recorrência (pc já teve peso ≥ 1.5): +1.5
+    """
+    g = np.zeros(12, dtype=np.float64)
+    seen_with_weight = set()
+
+    # Passo 1: pesos por nota individual
+    for n in notes:
+        pc = n['pitch_class']
+        dur = n['dur_ms']
+        g[pc] += 0.003 * dur
+        if dur >= 400:
+            g[pc] += 3.0
+        if dur >= 250 and n.get('rms_conf', 0) >= 0.7:
+            g[pc] += 2.0
+
+    # Passo 2: cadências de frase (peso MÁXIMO)
+    for phrase in phrases:
+        if not phrase:
+            continue
+        last_note = phrase[-1]
+        g[last_note['pitch_class']] += 8.0
+
+    # Passo 3: recorrência — pcs que acumularam peso ≥ 1.5 ganham reforço
+    for pc in range(12):
+        if g[pc] >= 1.5:
+            g[pc] += 1.5
+
+    return g
+
+
+def alignment_score(candidate_tonic: int, gravity: np.ndarray) -> float:
+    """
+    Quão bem uma tônica candidata casa com a gravidade tonal.
+    Pesos:
+      - Tônica (I): 70%
+      - Dominante (V): 20%   ← forte, mas não vence sozinho
+      - Subdominante (IV): 10%
+    Retorna 0..1. Tônica sem gravidade é penalizada até 60%.
+    """
+    total_g = float(gravity.sum())
+    if total_g < 8.0:
+        return 0.5  # neutro (dados insuficientes)
+    max_g = float(gravity.max() or 1.0)
+    norm = gravity / max_g
+    tonic = float(norm[candidate_tonic])
+    fifth = float(norm[(candidate_tonic + 7) % 12])
+    fourth = float(norm[(candidate_tonic + 5) % 12])
+    return max(0.0, min(1.0, 0.70 * tonic + 0.20 * fifth + 0.10 * fourth))
+
+
+def alignment_boost(candidate_tonic: int, gravity: np.ndarray) -> float:
+    """Multiplicador aplicado ao score: 0.4 (sem gravidade) → 1.0 (alinhado)."""
+    return 0.4 + 0.6 * alignment_score(candidate_tonic, gravity)
+
+
+def is_diatonic_degree_of(candidate: int, current_tonic: int, quality: str) -> bool:
+    """
+    True se candidate é grau II, III, IV, V, VI, VII da current_tonic.
+    (Não conta se é a própria tônica.)
+    """
+    if candidate == current_tonic:
+        return False
+    interval = (candidate - current_tonic + 12) % 12
+    if quality == 'minor':
+        return interval in {2, 3, 5, 7, 8, 10}  # ii°, III, iv, v, VI, VII
+    return interval in {2, 4, 5, 7, 9, 11}  # ii, iii, IV, V, vi, vii°
+
+
+def is_relative_pair(cand_a: Dict[str, Any], cand_b: Dict[str, Any]) -> bool:
+    """Maior e sua relativa menor."""
+    if cand_a['quality'] == cand_b['quality']:
+        return False
+    maj = cand_a if cand_a['quality'] == 'major' else cand_b
+    mn = cand_a if cand_a['quality'] == 'minor' else cand_b
+    return mn['root'] == (maj['root'] + 9) % 12
+
+
+def relative_tiebreak_score(cand: Dict[str, Any], hist: np.ndarray, phrases: List[List[Dict[str, Any]]]) -> float:
+    """Desempate quando top-2 são par relativo: cadência > freq tônica > 5ª."""
+    total = float(hist.sum() or 1.0)
+    tonic_freq = hist[cand['root']] / total
+    fifth_freq = hist[(cand['root'] + 7) % 12] / total
+    cad = 0.0
+    if phrases:
+        cad_count = sum(1 for p in phrases if p and p[-1]['pitch_class'] == cand['root'])
+        cad = cad_count / len(phrases)
+    return 0.55 * cad + 0.30 * tonic_freq + 0.15 * fifth_freq
+
+
 def detect_key_from_notes(
     notes: List[Dict[str, Any]],
     phrases: List[List[Dict[str, Any]]],
 ) -> Dict[str, Any]:
-    """Detecta tonalidade a partir de notas + frases segmentadas."""
+    """
+    Detecta tonalidade com pipeline v2 (mesma lógica do frontend mais madura):
+      1. Pontua cada 1 dos 24 candidatos (Krumhansl + cadência + força - penalidade)
+      2. Aplica BOOST de alignment por gravidade tonal global
+      3. Ordena e aplica TIEBREAKER de pares relativos se top-2 forem relativos
+      4. Aplica GUARD anti-grau-diatônico: se o runner-up é grau diatônico do top,
+         o top vence com margem aumentada (descarta 5ª, 4ª e 2ª como tônicas falsas)
+    """
     if not notes:
         return {'tonic': None, 'quality': None, 'confidence': 0.0, 'reason': 'no_notes'}
 
@@ -266,27 +370,71 @@ def detect_key_from_notes(
     if float(hist.sum()) < 1.0:
         return {'tonic': None, 'quality': None, 'confidence': 0.0, 'reason': 'too_little_audio'}
 
-    # Ranqueia todos os 24 candidatos
+    # ── Gravidade tonal global (novo v2) ─────────────────────────────
+    gravity = compute_tonic_gravity(notes, phrases)
+
+    # ── Scores base (Krumhansl + cadência + força - penalidade) ──────
     candidates = []
     for root in range(12):
         for quality in ('major', 'minor'):
             s = score_key(hist, phrases, root, quality)
+            boost = alignment_boost(root, gravity)
+            effective_score = s['score'] * boost
             candidates.append({
                 'root': root,
                 'quality': quality,
-                **s,
+                'base_score': s['score'],
+                'score': effective_score,
+                'boost': boost,
+                'alignment': alignment_score(root, gravity),
+                'cadence': s['cadence'],
+                'ks': s['ks'],
+                'force': s['force'],
+                'penalty': s['penalty'],
             })
+
+    # Ordena pelo effective_score
     candidates.sort(key=lambda c: c['score'], reverse=True)
+
+    # ── TIEBREAKER para pares relativos (maior/menor relativa) ───────
+    if len(candidates) >= 2 and is_relative_pair(candidates[0], candidates[1]):
+        diff = abs(candidates[0]['score'] - candidates[1]['score'])
+        avg = (candidates[0]['score'] + candidates[1]['score']) / 2
+        closeness = diff / avg if avg > 0 else 1.0
+        if closeness < 0.10:
+            tb0 = relative_tiebreak_score(candidates[0], hist, phrases)
+            tb1 = relative_tiebreak_score(candidates[1], hist, phrases)
+            if tb1 > tb0 + 0.03:
+                candidates[0], candidates[1] = candidates[1], candidates[0]
+
+    # ── GUARD anti-grau-diatônico ────────────────────────────────────
+    # Se o runner-up é grau V/IV/ii/iii/vi da tônica top, confirma o top
+    # (evita que V ou ii roubem o trono por coincidência de cadência).
+    # Este guard só reorganiza se top e runner-up têm scores MUITO próximos.
+    top = candidates[0]
+    for runner_idx in range(1, min(5, len(candidates))):
+        runner = candidates[runner_idx]
+        if is_diatonic_degree_of(runner['root'], top['root'], top['quality']):
+            # Se o runner é grau diatônico, exige gravity 1.3× pra superar
+            grav_top = float(gravity[top['root']])
+            grav_runner = float(gravity[runner['root']])
+            if grav_runner > grav_top * 1.3:
+                # Runner tem muito mais gravidade — provavelmente a tônica real
+                candidates[0], candidates[runner_idx] = runner, top
+                break
+
     top = candidates[0]
     runner = candidates[1] if len(candidates) > 1 else None
-
-    # Confidence baseada em margem + cadência + ks
     margin = top['score'] - (runner['score'] if runner else 0)
-    # Normaliza margem (~0.05 de diferença é 'boa')
-    margin_norm = min(1.0, margin / 0.08)
 
-    # Confidence honesta: combina margem de vitória, força de cadência e ks
-    confidence = 0.40 * margin_norm + 0.35 * top['cadence'] + 0.25 * top['ks']
+    # Confiança combina: margem + alinhamento + cadência + ks
+    margin_norm = min(1.0, margin / 0.08)
+    confidence = (
+        0.35 * margin_norm +
+        0.25 * top['alignment'] +
+        0.25 * top['cadence'] +
+        0.15 * top['ks']
+    )
     confidence = float(min(1.0, max(0.0, confidence)))
 
     return {
@@ -299,12 +447,15 @@ def detect_key_from_notes(
             {
                 'key': f"{NOTE_NAMES_BR[c['root']]} {'Maior' if c['quality'] == 'major' else 'menor'}",
                 'score': round(c['score'], 4),
+                'boost': round(c['boost'], 3),
+                'alignment': round(c['alignment'], 3),
                 'cadence': round(c['cadence'], 3),
                 'ks': round(c['ks'], 3),
             }
             for c in candidates[:5]
         ],
         'histogram': hist.tolist(),
+        'gravity': gravity.tolist(),
         'margin': round(margin, 4),
     }
 
