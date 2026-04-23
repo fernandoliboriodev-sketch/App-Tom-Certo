@@ -633,38 +633,58 @@
   }
 
   async function doCreateToken() {
-    const preset = document.getElementById('dur-preset').value;
-    const minutes = preset === 'custom' ? parseInt(document.getElementById('dur-custom').value) : parseInt(preset);
-    const maxDev = parseInt(document.getElementById('max-devices').value) || 1;
-    const customerName = document.getElementById('customer-name').value.trim();
-    const notes = document.getElementById('notes').value.trim();
-    const tokenCode = document.getElementById('token-code').value.trim().toUpperCase() || undefined;
-
-    const errEl = document.getElementById('create-error');
     const btn = document.getElementById('create-btn');
-    errEl.style.display = 'none';
+    const errEl = document.getElementById('create-error');
+
+    // ── Guarda anti-duplo-click (imediato, síncrono) ─────
+    if (btn.dataset.busy === '1') return;
+    btn.dataset.busy = '1';
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
+    errEl.style.display = 'none';
 
     try {
+      const preset = document.getElementById('dur-preset').value;
+      const minutes = preset === 'custom'
+        ? parseInt(document.getElementById('dur-custom').value)
+        : parseInt(preset);
+      if (!minutes || isNaN(minutes) || minutes < 1) {
+        throw new Error('Duração inválida. Selecione um preset ou informe valor numérico.');
+      }
+      const maxDev = parseInt(document.getElementById('max-devices').value) || 1;
+      const customerName = document.getElementById('customer-name').value.trim();
+      const notes = document.getElementById('notes').value.trim();
+      const tokenCode = document.getElementById('token-code').value.trim().toUpperCase() || undefined;
+
       const body = { duration_minutes: minutes, max_devices: maxDev, customer_name: customerName, notes };
       if (tokenCode) body.token_code = tokenCode;
+
       const r = await fetch(`${BASE}/api/admin/tokens`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
         body: JSON.stringify(body)
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.detail || 'Erro ao criar token');
+
+      // ── Parse defensivo: lê como texto e tenta JSON ────
+      const rawText = await r.text();
+      let d;
+      try {
+        d = rawText ? JSON.parse(rawText) : {};
+      } catch (parseErr) {
+        throw new Error(`Resposta inválida do servidor (HTTP ${r.status}): ${rawText.slice(0, 80)}`);
+      }
+      if (!r.ok) throw new Error(d?.detail || `Erro HTTP ${r.status}`);
+
       createdTokenCode = d.token;
       document.getElementById('result-code').textContent = d.token;
       document.getElementById('result-details').textContent = `Duração: ${fmtDuration(d.duration_minutes)} · Máx. ${d.max_devices} dispositivo(s)${d.customer_name ? ' · ' + d.customer_name : ''}`;
       document.getElementById('create-form').style.display = 'none';
       document.getElementById('create-result').style.display = 'block';
     } catch(e) {
-      errEl.textContent = e.message;
+      errEl.textContent = e.message || String(e);
       errEl.style.display = 'block';
     } finally {
+      btn.dataset.busy = '0';
       btn.disabled = false;
       btn.textContent = 'Criar Token';
     }
