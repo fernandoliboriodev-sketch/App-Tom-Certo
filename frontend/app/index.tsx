@@ -384,8 +384,92 @@ function ActiveScreen({ det }: { det: ReturnType<typeof useKeyDetection> }) {
             <Text style={ss.softBarTxt}>{softInfo}</Text>
           </View>
         ) : null}
+
+        {/* BOTÃO ANÁLISE DEFINITIVA (ML CREPE) */}
+        <View style={{ marginTop: 18, paddingHorizontal: 16 }}>
+          <TouchableOpacity
+            testID="ml-analyze-btn"
+            style={ss.mlBtn}
+            onPress={() => det.analyzeKeyDefinitive(12000)}
+            disabled={det.mlState === 'recording' || det.mlState === 'analyzing'}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="sparkles" size={18} color={C.bg} />
+            <Text style={ss.mlBtnTxt}>
+              {det.mlState === 'recording' ? 'GRAVANDO...' :
+               det.mlState === 'analyzing' ? 'ANALISANDO...' :
+               'ANÁLISE DEFINITIVA (IA)'}
+            </Text>
+          </TouchableOpacity>
+          <Text style={ss.mlBtnSubtxt}>
+            Cante por 12s — o servidor usa IA (CREPE) para identificar o tom com precisão profissional
+          </Text>
+        </View>
       </ScrollView>
+
+      {/* MODAL ML */}
+      <MLAnalysisModal det={det} />
     </View>
+  );
+}
+
+// ─── Modal de Análise ML ─────────────────────────────────────────────
+function MLAnalysisModal({ det }: { det: ReturnType<typeof useKeyDetection> }) {
+  const visible = det.mlState !== 'idle';
+  const pct = Math.round((det.mlProgress || 0) * 100);
+  const res = det.mlResult;
+  const success = res?.success === true;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={det.dismissMlResult}>
+      <View style={ss.modalBg}>
+        <View style={ss.mlModalCard}>
+          {det.mlState === 'recording' && (
+            <>
+              <Ionicons name="mic" size={34} color={C.amber} />
+              <Text style={ss.mlModalTitle}>Gravando...</Text>
+              <Text style={ss.mlModalSub}>Cante continuamente. {Math.round((1 - (det.mlProgress || 0)) * 12)}s restantes</Text>
+              <View style={ss.mlProgBar}>
+                <View style={[ss.mlProgFill, { width: `${pct}%` }]} />
+              </View>
+            </>
+          )}
+          {det.mlState === 'analyzing' && (
+            <>
+              <ActivityIndicator size="large" color={C.amber} />
+              <Text style={ss.mlModalTitle}>Analisando com IA</Text>
+              <Text style={ss.mlModalSub}>Servidor processando {Math.round(res?.duration_s ?? 12)}s de áudio com CREPE + Krumhansl...</Text>
+            </>
+          )}
+          {det.mlState === 'done' && success && (
+            <>
+              <Ionicons name="checkmark-circle" size={40} color={C.green} />
+              <Text style={ss.mlModalTitle}>Tom Definitivo</Text>
+              <Text style={ss.mlModalKey}>{res?.key_name}</Text>
+              <Text style={ss.mlModalSub}>
+                Confiança: {Math.round((res?.confidence ?? 0) * 100)}% · {res?.notes_count} notas detectadas · {res?.phrases_count} frases
+              </Text>
+              <Text style={ss.mlModalFootnote}>
+                Método: {res?.method} · Framework CREPE (benchmark 95% em voz humana)
+              </Text>
+              <TouchableOpacity style={ss.modalPrimary} onPress={det.dismissMlResult}>
+                <Text style={ss.modalPrimaryTxt}>Entendi</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          {(det.mlState === 'error' || (det.mlState === 'done' && !success)) && (
+            <>
+              <Ionicons name="alert-circle" size={40} color={C.red} />
+              <Text style={ss.mlModalTitle}>Não foi possível analisar</Text>
+              <Text style={ss.mlModalSub}>{res?.message || 'Erro desconhecido'}</Text>
+              <TouchableOpacity style={ss.modalPrimary} onPress={det.dismissMlResult}>
+                <Text style={ss.modalPrimaryTxt}>Fechar</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -668,4 +752,49 @@ const ss = StyleSheet.create({
   modalPrimaryTxt: { fontFamily: 'Manrope_600SemiBold', fontSize: 15, color: C.bg, letterSpacing: 0.4 },
   modalSecondary: { height: 40, alignItems: 'center', justifyContent: 'center' },
   modalSecondaryTxt: { fontFamily: 'Manrope_500Medium', fontSize: 13, color: C.text2 },
+
+  // ML (Análise Definitiva)
+  mlBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    height: 52, borderRadius: 14,
+    backgroundColor: C.amber,
+    ...Platform.select({
+      ios: { shadowColor: C.amber, shadowOpacity: 0.45, shadowRadius: 16, shadowOffset: { width: 0, height: 6 } },
+      android: { elevation: 6 },
+    }),
+  },
+  mlBtnTxt: {
+    fontFamily: 'Manrope_700Bold', fontSize: 14, color: C.bg, letterSpacing: 0.8,
+  },
+  mlBtnSubtxt: {
+    fontFamily: 'Manrope_400Regular', fontSize: 11, color: C.text3,
+    textAlign: 'center', marginTop: 8, lineHeight: 15, paddingHorizontal: 10,
+  },
+  mlModalCard: {
+    backgroundColor: C.surface, borderRadius: 24,
+    borderWidth: 1, borderColor: C.border,
+    padding: 28, width: '100%', alignItems: 'center', gap: 12,
+  },
+  mlModalTitle: {
+    fontFamily: 'Outfit_700Bold', fontSize: 22, color: C.white, marginTop: 6, letterSpacing: -0.4,
+  },
+  mlModalSub: {
+    fontFamily: 'Manrope_400Regular', fontSize: 13, color: C.text2,
+    textAlign: 'center', lineHeight: 18, maxWidth: 280,
+  },
+  mlModalKey: {
+    fontFamily: 'Outfit_800ExtraBold', fontSize: 48, color: C.amber,
+    letterSpacing: -1, marginVertical: 4,
+  },
+  mlModalFootnote: {
+    fontFamily: 'Manrope_400Regular', fontSize: 10, color: C.text3,
+    textAlign: 'center', marginTop: 6, letterSpacing: 0.5,
+  },
+  mlProgBar: {
+    width: '100%', height: 8, borderRadius: 4,
+    backgroundColor: C.surface2, marginTop: 14, overflow: 'hidden',
+  },
+  mlProgFill: {
+    height: '100%', backgroundColor: C.amber, borderRadius: 4,
+  },
 });

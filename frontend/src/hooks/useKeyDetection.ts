@@ -31,6 +31,7 @@ import {
   NoteSample,
 } from '../utils/tonalScorer';
 import { usePitchEngine } from '../audio/usePitchEngine';
+import { analyzeKeyML, MLAnalysisResult } from '../utils/mlKeyAnalyzer';
 import type { PitchEvent, PitchErrorReason } from '../audio/types';
 import { frequencyToMidi, midiToPitchClass } from '../utils/noteUtils';
 
@@ -362,7 +363,64 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     setErrorMessage(null);
     setErrorReason(null);
     setSoftInfo(null);
+    setMlResult(null);
+    setMlState('idle');
   }, [stop]);
+
+  // ═══ ANÁLISE ML (CREPE no backend) ═══════════════════════════════════
+  // Captura N segundos de áudio em paralelo ao detector em tempo real
+  // e envia ao backend para análise definitiva (torchcrepe + Krumhansl).
+  const [mlState, setMlState] = useState<'idle' | 'recording' | 'analyzing' | 'done' | 'error'>('idle');
+  const [mlResult, setMlResult] = useState<MLAnalysisResult | null>(null);
+  const [mlProgress, setMlProgress] = useState(0); // 0..1 (tempo de gravação)
+
+  const analyzeKeyDefinitive = useCallback(async (durationMs: number = 12000) => {
+    if (!isRunning) {
+      setMlResult({ success: false, error: 'not_running', message: 'Ative o microfone primeiro.' });
+      setMlState('error');
+      return;
+    }
+    if (!engine.captureClip) {
+      setMlResult({ success: false, error: 'not_supported', message: 'Captura ML não disponível neste ambiente.' });
+      setMlState('error');
+      return;
+    }
+    try {
+      setMlResult(null);
+      setMlState('recording');
+      setMlProgress(0);
+      // Animação de progresso (baseada em tempo)
+      const startT = Date.now();
+      const progTimer = setInterval(() => {
+        const elapsed = Date.now() - startT;
+        setMlProgress(Math.min(1, elapsed / durationMs));
+      }, 100);
+
+      const clip = await engine.captureClip(durationMs);
+      clearInterval(progTimer);
+      setMlProgress(1);
+
+      if (!clip || clip.samples.length < 16000 * 3) {
+        setMlResult({ success: false, error: 'no_audio', message: 'Não capturamos áudio suficiente. Tente novamente.' });
+        setMlState('error');
+        return;
+      }
+
+      setMlState('analyzing');
+      const result = await analyzeKeyML(clip, 30000);
+      setMlResult(result);
+      setMlState(result.success ? 'done' : 'error');
+    } catch (e: any) {
+      setMlResult({ success: false, error: 'exception', message: e?.message || String(e) });
+      setMlState('error');
+    }
+  }, [isRunning, engine]);
+
+  const dismissMlResult = useCallback(() => {
+    setMlState('idle');
+    setMlResult(null);
+    setMlProgress(0);
+  }, []);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
@@ -457,5 +515,11 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     start,
     stop,
     reset,
+    // ═ ML Analysis (CREPE no backend) ═
+    mlState,
+    mlResult,
+    mlProgress,
+    analyzeKeyDefinitive,
+    dismissMlResult,
   };
 }

@@ -482,6 +482,77 @@ async def admin_ui():
     )
 
 
+# ─── ML Key Analysis (CREPE + Krumhansl) ──────────────────────────────────────
+# Carrega módulo sob demanda (evita impacto em boot se torchcrepe falhar)
+_key_detection_mod = None
+_key_detection_load_error: Optional[str] = None
+
+
+def _get_key_detection():
+    global _key_detection_mod, _key_detection_load_error
+    if _key_detection_mod is not None:
+        return _key_detection_mod
+    if _key_detection_load_error is not None:
+        return None
+    try:
+        from key_detection import analyze_audio_bytes  # noqa: WPS433
+        _key_detection_mod = analyze_audio_bytes
+        logger.info("✓ Módulo ML key_detection carregado (torchcrepe)")
+        return _key_detection_mod
+    except Exception as e:
+        _key_detection_load_error = str(e)
+        logger.error("✗ Falha ao carregar key_detection: %s", e)
+        return None
+
+
+@app.post("/api/analyze-key")
+async def analyze_key(request: Request):
+    """
+    Analisa um áudio a capela e retorna a tonalidade detectada.
+    Aceita multipart/form-data com campo 'audio' OU body raw de áudio.
+    Resposta: { success, key_name, tonic, quality, confidence, notes_count, ... }
+    """
+    # Aceita tanto multipart quanto body raw
+    content_type = request.headers.get("content-type", "")
+    audio_bytes: Optional[bytes] = None
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        audio_field = form.get("audio")
+        if audio_field is None:
+            raise HTTPException(status_code=400, detail="Campo 'audio' ausente no form")
+        # UploadFile tem .read()
+        if hasattr(audio_field, "read"):
+            audio_bytes = await audio_field.read()
+        else:
+            audio_bytes = bytes(audio_field)  # type: ignore
+    else:
+        audio_bytes = await request.body()
+
+    if not audio_bytes or len(audio_bytes) < 1000:
+        raise HTTPException(status_code=400, detail="Áudio vazio ou muito pequeno")
+
+    # Tamanho máximo: 5MB
+    if len(audio_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Áudio muito grande (máx 5MB)")
+
+    analyze_fn = _get_key_detection()
+    if analyze_fn is None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Módulo de análise ML indisponível: {_key_detection_load_error or 'erro desconhecido'}",
+        )
+
+    try:
+        import asyncio
+        # Roda análise em thread separada (CPU-bound, não bloqueia loop)
+        result = await asyncio.to_thread(analyze_fn, audio_bytes)
+        return result
+    except Exception as e:
+        logger.exception("Erro na análise de tonalidade")
+        raise HTTPException(status_code=500, detail=f"Erro ao analisar áudio: {e}")
+
+
 # ─── Include router and middleware ────────────────────────────────────────────
 app.include_router(api_router)
 

@@ -26,6 +26,7 @@ import type {
   ErrorCallback,
   PitchEngineHandle,
   PitchErrorReason,
+  CapturedClip,
 } from './types';
 
 // ─── Parâmetros de captura ────────────────────────────────────────────────────
@@ -76,6 +77,15 @@ export function usePitchEngine(): PitchEngineHandle {
   const ringRef = useRef<Float32Array>(new Float32Array(RING_CAPACITY));
   const ringLenRef = useRef<number>(0); // quantas amostras válidas estão no buffer
 
+  // ── Captura em paralelo para análise ML (backend) ──────────────────────────
+  // Quando ativa, cada chunk do audio stream é copiado para `captureBuffersRef`
+  // em paralelo ao processamento YIN. Não afeta performance do pitch em tempo real.
+  const captureActiveRef = useRef(false);
+  const captureBuffersRef = useRef<Float32Array[]>([]);
+  const captureTotalSamplesRef = useRef(0);
+  const captureMaxSamplesRef = useRef(0);
+  const captureResolveRef = useRef<((clip: CapturedClip | null) => void) | null>(null);
+
   const runYinOnFrame = useCallback((frame: Float32Array, sampleRate: number) => {
     if (!activeRef.current) return; // skip YIN se sessão parou (evita trabalho perdido)
     const result = yinPitch(frame, { sampleRate });
@@ -96,6 +106,41 @@ export function usePitchEngine(): PitchEngineHandle {
       if (!activeRef.current) return;
       const data = event.data;
       if (!(data instanceof Float32Array)) return;
+
+      // ── CAPTURA PARALELA (ML): copia chunk pro buffer se ativo ──────────
+      if (captureActiveRef.current) {
+        // Clona (não guarda referência; nativo pode reusar o buffer)
+        const cloned = new Float32Array(data.length);
+        cloned.set(data);
+        captureBuffersRef.current.push(cloned);
+        captureTotalSamplesRef.current += cloned.length;
+        // Se atingiu o alvo, resolve
+        if (
+          captureMaxSamplesRef.current > 0 &&
+          captureTotalSamplesRef.current >= captureMaxSamplesRef.current
+        ) {
+          const total = captureTotalSamplesRef.current;
+          const merged = new Float32Array(total);
+          let off = 0;
+          for (const buf of captureBuffersRef.current) {
+            merged.set(buf, off);
+            off += buf.length;
+          }
+          captureActiveRef.current = false;
+          captureBuffersRef.current = [];
+          captureTotalSamplesRef.current = 0;
+          captureMaxSamplesRef.current = 0;
+          const resolver = captureResolveRef.current;
+          captureResolveRef.current = null;
+          if (resolver) {
+            resolver({
+              samples: merged,
+              sampleRate: SAMPLE_RATE,
+              durationMs: (total / SAMPLE_RATE) * 1000,
+            });
+          }
+        }
+      }
 
       const ring = ringRef.current;
       const len = ringLenRef.current;
@@ -317,10 +362,52 @@ export function usePitchEngine(): PitchEngineHandle {
     softInfoRef.current = handler;
   }, []);
 
+  // ── Captura clip de N ms em paralelo (para envio ML backend) ─────────────
+  const captureClip = useCallback(async (durationMs: number): Promise<CapturedClip | null> => {
+    if (!activeRef.current) return null;
+    if (captureActiveRef.current) return null; // já capturando
+    const targetSamples = Math.round((durationMs / 1000) * SAMPLE_RATE);
+    captureBuffersRef.current = [];
+    captureTotalSamplesRef.current = 0;
+    captureMaxSamplesRef.current = targetSamples;
+    return new Promise<CapturedClip | null>((resolve) => {
+      captureResolveRef.current = resolve;
+      captureActiveRef.current = true;
+      // Timeout de segurança (2× duração)
+      setTimeout(() => {
+        if (captureActiveRef.current && captureResolveRef.current === resolve) {
+          // Se ainda não resolveu, pega o que tem
+          const total = captureTotalSamplesRef.current;
+          if (total > 0) {
+            const merged = new Float32Array(total);
+            let off = 0;
+            for (const buf of captureBuffersRef.current) {
+              merged.set(buf, off);
+              off += buf.length;
+            }
+            captureResolveRef.current = null;
+            captureActiveRef.current = false;
+            captureBuffersRef.current = [];
+            captureTotalSamplesRef.current = 0;
+            resolve({ samples: merged, sampleRate: SAMPLE_RATE, durationMs: (total / SAMPLE_RATE) * 1000 });
+          } else {
+            captureActiveRef.current = false;
+            captureResolveRef.current = null;
+            resolve(null);
+          }
+        }
+      }, durationMs * 2 + 1000);
+    });
+  }, []);
+
+  const isCapturing = useCallback(() => captureActiveRef.current, []);
+
   return {
     isSupported: true,
     start,
     stop,
     setSoftInfoHandler,
+    captureClip,
+    isCapturing,
   };
 }
