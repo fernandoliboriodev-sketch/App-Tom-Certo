@@ -203,28 +203,48 @@ function ActiveScreen({ det }: { det: ReturnType<typeof useKeyDetection> }) {
     detectionState, currentKey, keyTier, liveConfidence, changeSuggestion,
     currentNote, recentNotes, audioLevel, isStable, isRunning,
     softInfo, reset, phraseStage, phrasesAnalyzed,
+    smartStatus, mlResult,
   } = det;
 
-  const confirmedKey = keyTier === 'confirmed' ? currentKey : null;
-  const provisionalKey = keyTier === 'provisional' ? currentKey : null;
+  // ── Resultado ML tem prioridade quando disponível ──
+  // Converte nome PT-BR (ex: "Sol Maior") em { root, quality } pro campo harmônico
+  const mlKey = useMemo(() => {
+    if (!mlResult?.success || mlResult.tonic === undefined || !mlResult.quality) return null;
+    return { root: mlResult.tonic, quality: mlResult.quality as 'major' | 'minor' };
+  }, [mlResult?.tonic, mlResult?.quality, mlResult?.success]);
+
+  const confirmedKey = mlKey || (keyTier === 'confirmed' ? currentKey : null);
+  const provisionalKey = mlKey ? null : (keyTier === 'provisional' ? currentKey : null);
   const displayKey = confirmedKey || provisionalKey;
-  const confPct = Math.round(Math.max(0, liveConfidence) * 100);
+
+  // Confiança: usa ML quando disponível, senão heurístico
+  const confPct = mlResult?.success
+    ? Math.round((mlResult.confidence ?? 0) * 100)
+    : Math.round(Math.max(0, liveConfidence) * 100);
   const confColor = confPct >= 75 ? C.green : confPct >= 55 ? C.amber : C.text2;
 
-  // ── Status label baseado nos 4 estágios do detector por frases ──
-  const statusLabel =
-    phraseStage === 'listening' ? (phrasesAnalyzed === 0 ? 'ESCUTANDO' : 'AGUARDANDO FRASE') :
-    phraseStage === 'probable' ? `PROVÁVEL · ${phrasesAnalyzed} FRASE${phrasesAnalyzed > 1 ? 'S' : ''}` :
-    phraseStage === 'confirmed' ? `CONFIRMANDO · ${phrasesAnalyzed} FRASES` :
-    phraseStage === 'definitive' ? `DEFINITIVO · ${phrasesAnalyzed} FRASES` :
-    'PRONTO';
+  // ── Mensagens AMIGÁVEIS (sem jargão técnico) ──
+  // Baseado em smartStatus (prioridade IA) + estágio heurístico (fallback)
+  const statusLabel = (() => {
+    if (!isRunning) return 'TOQUE PARA COMEÇAR';
+    if (smartStatus === 'confirmed') return 'TOM IDENTIFICADO';
+    if (smartStatus === 'analyzing') return 'ANALISANDO O TOM...';
+    if (smartStatus === 'listening') return 'OUVINDO SUA VOZ...';
+    if (smartStatus === 'warming') return 'OUVINDO SUA VOZ...';
+    // Fallback: sem ML — usa heurístico humanizado
+    if (phraseStage === 'listening') return 'OUVINDO SUA VOZ...';
+    if (phraseStage === 'probable') return 'IDENTIFICANDO TONALIDADE...';
+    if (phraseStage === 'confirmed') return 'CONFIRMANDO TOM...';
+    if (phraseStage === 'definitive') return 'TOM IDENTIFICADO';
+    return 'PRONTO';
+  })();
 
-  const statusDotColor =
-    phraseStage === 'listening' ? C.text2 :
-    phraseStage === 'probable' ? C.amber :
-    phraseStage === 'confirmed' ? C.amber :
-    phraseStage === 'definitive' ? C.green :
-    C.text3;
+  const statusDotColor = (() => {
+    if (!isRunning) return C.text3;
+    if (smartStatus === 'confirmed' || phraseStage === 'definitive') return C.green;
+    if (smartStatus === 'analyzing') return C.amber;
+    return C.text2;
+  })();
 
   const harmonicField = useMemo(
     () => displayKey ? getHarmonicField(displayKey.root, displayKey.quality) : [],
@@ -334,11 +354,7 @@ function ActiveScreen({ det }: { det: ReturnType<typeof useKeyDetection> }) {
                   ss.keyCardBadgeTxt,
                   { color: confirmedKey ? C.green : C.amber },
                 ]}>
-                  {phraseStage === 'definitive'
-                    ? 'TOM DEFINITIVO'
-                    : phraseStage === 'confirmed'
-                      ? 'CONFIRMANDO MODO'
-                      : 'TOM PROVÁVEL'}
+                  {confirmedKey ? 'TOM IDENTIFICADO' : 'IDENTIFICANDO...'}
                 </Text>
               </View>
               <Text style={[ss.keyCardConfPct, { color: confirmedKey ? C.green : confColor }]}>{confPct}%</Text>
@@ -384,92 +400,8 @@ function ActiveScreen({ det }: { det: ReturnType<typeof useKeyDetection> }) {
             <Text style={ss.softBarTxt}>{softInfo}</Text>
           </View>
         ) : null}
-
-        {/* BOTÃO ANÁLISE DEFINITIVA (ML CREPE) */}
-        <View style={{ marginTop: 18, paddingHorizontal: 16 }}>
-          <TouchableOpacity
-            testID="ml-analyze-btn"
-            style={ss.mlBtn}
-            onPress={() => det.analyzeKeyDefinitive(12000)}
-            disabled={det.mlState === 'recording' || det.mlState === 'analyzing'}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="sparkles" size={18} color={C.bg} />
-            <Text style={ss.mlBtnTxt}>
-              {det.mlState === 'recording' ? 'GRAVANDO...' :
-               det.mlState === 'analyzing' ? 'ANALISANDO...' :
-               'ANÁLISE DEFINITIVA (IA)'}
-            </Text>
-          </TouchableOpacity>
-          <Text style={ss.mlBtnSubtxt}>
-            Cante por 12s — o servidor usa IA (CREPE) para identificar o tom com precisão profissional
-          </Text>
-        </View>
       </ScrollView>
-
-      {/* MODAL ML */}
-      <MLAnalysisModal det={det} />
     </View>
-  );
-}
-
-// ─── Modal de Análise ML ─────────────────────────────────────────────
-function MLAnalysisModal({ det }: { det: ReturnType<typeof useKeyDetection> }) {
-  const visible = det.mlState !== 'idle';
-  const pct = Math.round((det.mlProgress || 0) * 100);
-  const res = det.mlResult;
-  const success = res?.success === true;
-
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={det.dismissMlResult}>
-      <View style={ss.modalBg}>
-        <View style={ss.mlModalCard}>
-          {det.mlState === 'recording' && (
-            <>
-              <Ionicons name="mic" size={34} color={C.amber} />
-              <Text style={ss.mlModalTitle}>Gravando...</Text>
-              <Text style={ss.mlModalSub}>Cante continuamente. {Math.round((1 - (det.mlProgress || 0)) * 12)}s restantes</Text>
-              <View style={ss.mlProgBar}>
-                <View style={[ss.mlProgFill, { width: `${pct}%` }]} />
-              </View>
-            </>
-          )}
-          {det.mlState === 'analyzing' && (
-            <>
-              <ActivityIndicator size="large" color={C.amber} />
-              <Text style={ss.mlModalTitle}>Analisando com IA</Text>
-              <Text style={ss.mlModalSub}>Servidor processando {Math.round(res?.duration_s ?? 12)}s de áudio com CREPE + Krumhansl...</Text>
-            </>
-          )}
-          {det.mlState === 'done' && success && (
-            <>
-              <Ionicons name="checkmark-circle" size={40} color={C.green} />
-              <Text style={ss.mlModalTitle}>Tom Definitivo</Text>
-              <Text style={ss.mlModalKey}>{res?.key_name}</Text>
-              <Text style={ss.mlModalSub}>
-                Confiança: {Math.round((res?.confidence ?? 0) * 100)}% · {res?.notes_count} notas detectadas · {res?.phrases_count} frases
-              </Text>
-              <Text style={ss.mlModalFootnote}>
-                Método: {res?.method} · Framework CREPE (benchmark 95% em voz humana)
-              </Text>
-              <TouchableOpacity style={ss.modalPrimary} onPress={det.dismissMlResult}>
-                <Text style={ss.modalPrimaryTxt}>Entendi</Text>
-              </TouchableOpacity>
-            </>
-          )}
-          {(det.mlState === 'error' || (det.mlState === 'done' && !success)) && (
-            <>
-              <Ionicons name="alert-circle" size={40} color={C.red} />
-              <Text style={ss.mlModalTitle}>Não foi possível analisar</Text>
-              <Text style={ss.mlModalSub}>{res?.message || 'Erro desconhecido'}</Text>
-              <TouchableOpacity style={ss.modalPrimary} onPress={det.dismissMlResult}>
-                <Text style={ss.modalPrimaryTxt}>Fechar</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-      </View>
-    </Modal>
   );
 }
 

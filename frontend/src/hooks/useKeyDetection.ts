@@ -367,60 +367,91 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     setMlState('idle');
   }, [stop]);
 
-  // ═══ ANÁLISE ML (CREPE no backend) ═══════════════════════════════════
-  // Captura N segundos de áudio em paralelo ao detector em tempo real
-  // e envia ao backend para análise definitiva (torchcrepe + Krumhansl).
-  const [mlState, setMlState] = useState<'idle' | 'recording' | 'analyzing' | 'done' | 'error'>('idle');
+  // ═══ ANÁLISE ML (IA no backend, invisível ao usuário) ═════════════════
+  // Dispara AUTOMATICAMENTE ~2s após start(), captura 10s de áudio, envia
+  // ao servidor. O usuário não vê botão — só o resultado final.
+  const [mlState, setMlState] = useState<'idle' | 'waiting' | 'listening' | 'analyzing' | 'done' | 'error'>('idle');
   const [mlResult, setMlResult] = useState<MLAnalysisResult | null>(null);
-  const [mlProgress, setMlProgress] = useState(0); // 0..1 (tempo de gravação)
+  const [mlProgress, setMlProgress] = useState(0); // 0..1 (tempo de escuta)
 
-  const analyzeKeyDefinitive = useCallback(async (durationMs: number = 12000) => {
-    if (!isRunning) {
-      setMlResult({ success: false, error: 'not_running', message: 'Ative o microfone primeiro.' });
-      setMlState('error');
-      return;
-    }
-    if (!engine.captureClip) {
-      setMlResult({ success: false, error: 'not_supported', message: 'Captura ML não disponível neste ambiente.' });
-      setMlState('error');
-      return;
-    }
+  const ML_CAPTURE_DURATION_MS = 10000;
+  const ML_START_DELAY_MS = 2000;       // tempo "aquecendo" antes de capturar
+  const ML_REANALYZE_INTERVAL_MS = 20000; // a cada 20s re-analisa se ainda rodando
+
+  const runMLAnalysis = useCallback(async () => {
+    if (!isRunning) return;
+    if (!engine.captureClip) return;
+    // Se já está em andamento, ignora
+    if (mlState === 'listening' || mlState === 'analyzing') return;
+
     try {
-      setMlResult(null);
-      setMlState('recording');
+      setMlState('listening');
       setMlProgress(0);
-      // Animação de progresso (baseada em tempo)
       const startT = Date.now();
       const progTimer = setInterval(() => {
         const elapsed = Date.now() - startT;
-        setMlProgress(Math.min(1, elapsed / durationMs));
+        setMlProgress(Math.min(1, elapsed / ML_CAPTURE_DURATION_MS));
       }, 100);
 
-      const clip = await engine.captureClip(durationMs);
+      const clip = await engine.captureClip(ML_CAPTURE_DURATION_MS);
       clearInterval(progTimer);
       setMlProgress(1);
 
       if (!clip || clip.samples.length < 16000 * 3) {
-        setMlResult({ success: false, error: 'no_audio', message: 'Não capturamos áudio suficiente. Tente novamente.' });
-        setMlState('error');
+        // Áudio insuficiente — volta silenciosamente ao 'idle' (user não precisa saber)
+        setMlState('idle');
         return;
       }
 
       setMlState('analyzing');
       const result = await analyzeKeyML(clip, 30000);
-      setMlResult(result);
-      setMlState(result.success ? 'done' : 'error');
+      // Só salva se tem sucesso; erros silenciosos (user vê heurístico mesmo)
+      if (result.success) {
+        setMlResult(result);
+        setMlState('done');
+      } else {
+        console.warn('[ML] Analyze falhou:', result.error, result.message);
+        setMlState('idle');
+      }
     } catch (e: any) {
-      setMlResult({ success: false, error: 'exception', message: e?.message || String(e) });
-      setMlState('error');
+      console.warn('[ML] Erro na análise:', e?.message || e);
+      setMlState('idle');
     }
-  }, [isRunning, engine]);
+  }, [isRunning, engine, mlState]);
 
   const dismissMlResult = useCallback(() => {
     setMlState('idle');
     setMlResult(null);
     setMlProgress(0);
   }, []);
+
+  // ── Auto-trigger: ~2s após iniciar, dispara 1ª análise ML ────────────────
+  useEffect(() => {
+    if (!isRunning) return;
+    if (mlState !== 'idle') return;
+    if (mlResult?.success) return; // já temos resultado, não reinicia
+
+    const timer = setTimeout(() => {
+      setMlState('waiting');
+      runMLAnalysis();
+    }, ML_START_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [isRunning, mlState, mlResult, runMLAnalysis]);
+
+  // ── Re-análise periódica: a cada 20s re-confirma tom (em background) ─────
+  useEffect(() => {
+    if (!isRunning) return;
+    if (!mlResult?.success) return; // só re-analisa depois do 1º sucesso
+
+    const interval = setInterval(() => {
+      if (mlState === 'idle' || mlState === 'done') {
+        runMLAnalysis();
+      }
+    }, ML_REANALYZE_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [isRunning, mlResult, mlState, runMLAnalysis]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
@@ -515,11 +546,19 @@ export function useKeyDetection(): UseKeyDetectionReturn {
     start,
     stop,
     reset,
-    // ═ ML Analysis (CREPE no backend) ═
+    // ═ IA automática invisível ═
     mlState,
     mlResult,
     mlProgress,
-    analyzeKeyDefinitive,
     dismissMlResult,
+    // smartStatus: traduz estados técnicos em mensagens amigáveis
+    smartStatus: (() => {
+      if (!isRunning) return 'idle' as const;
+      if (mlResult?.success) return 'confirmed' as const;
+      if (mlState === 'analyzing') return 'analyzing' as const;
+      if (mlState === 'listening') return 'listening' as const;
+      if (mlState === 'waiting' || mlState === 'idle') return 'warming' as const;
+      return 'listening' as const;
+    })(),
   };
 }
